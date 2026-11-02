@@ -33,7 +33,7 @@ try {
     assert.equal(materials.get('cap').transmission,1)
     assert.equal(materials.get('gold').metalness,1)
     assert.ok(audit.particles>=9216)
-    await page.screenshot({path:`${output}/${name}.png`})
+    await page.screenshot({path:`${output}/${name}.png`,timeout:120000,animations:'disabled'})
     report.push({name,width,height,bottleBounds:box,copyBounds:copy,...audit})
   }
   await page.setViewportSize({width:1366,height:768})
