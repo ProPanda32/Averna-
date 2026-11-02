@@ -1,0 +1,190 @@
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { createOpticalStage } from './optical-stage'
+import { createGarden } from './garden'
+import './hero.css'
+
+const icon = (path:string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`
+const menuIcon=icon('<path d="M3 6h18M3 12h18M3 18h18"/>')
+const searchIcon=icon('<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>')
+const musicIcon=icon('<path d="M9 18V5l11-2v13M9 9l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2.5"/><ellipse cx="17" cy="16" rx="3" ry="2.5"/>')
+const mailIcon=icon('<rect x="2" y="5" width="20" height="14" rx="1"/><path d="m3 6 9 8 9-8"/>')
+const app=document.querySelector<HTMLDivElement>('#app')!
+app.innerHTML=`
+  <a class="skip-link" href="#fragrance">Skip to the collection</a>
+  <header class="site-header">
+    <div class="header-left">
+      <button class="header-menu" aria-label="Open menu" aria-haspopup="dialog" aria-controls="menu-dialog">${menuIcon}<span>Menu</span></button>
+      <button class="header-search" aria-label="Search Nocturne" aria-haspopup="dialog" aria-controls="search-dialog">${searchIcon}<span>Search</span></button>
+    </div>
+    <a class="header-logo" href="#top" aria-label="Nocturne home">NOCTURNE</a>
+    <div class="header-right">
+      <a class="world-link" href="#story">Our world</a>
+      <button class="music-toggle" aria-label="Play ambient sound" aria-pressed="false">${musicIcon}</button>
+      <button class="mail-toggle" aria-label="Correspondence" aria-haspopup="dialog" aria-controls="mail-dialog">${mailIcon}</button>
+    </div>
+  </header>
+  <main>
+    <section class="site-hero" id="top" aria-label="An enchanted garden surrounding the Nocturne perfume bottle">
+      <div class="scene-layer" aria-hidden="true"></div>
+      <button class="bottle-drag-target" aria-label="Rotate the Nocturne bottle. Drag horizontally or use left and right arrow keys." hidden></button>
+      <p class="load-status" role="status">Entering Nocturne<span class="loading-dot"> ·</span></p>
+      <div class="hero-copy">
+        <p class="hero-kicker">THE ESSENCE WITHIN</p>
+        <h1><a href="#fragrance">Discover The Collection</a></h1>
+        <p class="drag-hint">DRAG TO EXPLORE <span aria-hidden="true">~</span></p>
+      </div>
+      <div class="scene-error" role="status" hidden><p>The experience could not open.</p><button class="retry">Try again</button><a href="#fragrance">Explore the collection</a></div>
+    </section>
+    <section class="fragrance-section" id="fragrance" aria-labelledby="fragrance-title">
+      <p class="section-index">01 / THE FRAGRANCE</p>
+      <div class="editorial-grid"><div><p class="section-kicker">The Nocturne collection</p><h2 id="fragrance-title">Made for the<br>hours after dark.</h2></div>
+      <div class="editorial-detail"><p class="product-name">NOCTURNE <span>EAU DE PARFUM</span></p><p>Deep amber held in sculpted crystal. A warm gold collar and a faceted cap catch the last light.</p><a href="#top" class="text-link">Explore the bottle <span aria-hidden="true">↗</span></a></div></div>
+    </section>
+    <section class="story-section" id="story" aria-labelledby="story-title"><p class="section-index">02 / THE WORLD OF NOCTURNE</p>
+      <div class="editorial-grid"><h2 id="story-title">Light, held<br>in shadow.</h2><div class="editorial-detail"><p>Crystal, amber and gold. An intimate world that reveals itself slowly, in the hours between dusk and dawn.</p><a href="#top" class="text-link">Return to the experience <span aria-hidden="true">↑</span></a></div></div>
+    </section>
+  </main>
+  <footer><a href="#top">NOCTURNE</a><span>EAU DE PARFUM</span><a href="#top">Back to top ↑</a></footer>
+  <dialog id="menu-dialog" class="side-dialog" aria-labelledby="menu-title"><button class="dialog-close" aria-label="Close menu">×</button>
+    <p class="section-kicker">NOCTURNE</p><h2 id="menu-title">Beyond the light.</h2>
+    <nav aria-label="Explore Nocturne"><a href="#top">The experience</a><a href="#fragrance">The collection</a><a href="#story">Our world</a></nav>
+    <button class="scene-controls-toggle text-link">Scene controls</button>
+  </dialog>
+  <dialog id="search-dialog" aria-labelledby="search-title"><button class="dialog-close" aria-label="Close search">×</button><h2 id="search-title">Explore Nocturne</h2>
+    <label for="site-search">What are you looking for?</label><input id="site-search" type="search" placeholder="Fragrance, bottle, our world…" autocomplete="off"/>
+    <nav class="search-results" aria-live="polite"><a href="#fragrance" data-terms="perfume fragrance collection amber">The fragrance collection</a><a href="#top" data-terms="bottle crystal glass experience">The bottle experience</a><a href="#story" data-terms="world story nocturne">Our world</a></nav><p class="search-empty" hidden>No matching pages. Try “fragrance” or “world”.</p>
+  </dialog>
+  <dialog id="mail-dialog" aria-labelledby="mail-title"><button class="dialog-close" aria-label="Close correspondence">×</button><p class="section-kicker">CORRESPONDENCE</p><h2 id="mail-title">A world unfolding.</h2><p>Our correspondence service is not yet open. In the meantime, discover the story of Nocturne.</p><a class="text-link" href="#story">Enter our world ↗</a></dialog>
+  <dialog id="controls-dialog" aria-labelledby="controls-title"><button class="dialog-close" aria-label="Close scene controls">×</button><h2 id="controls-title">Scene controls</h2>
+    <label>Illumination <input id="exposure" type="range" min="0.65" max="1.4" step=".05" value="1"/></label>
+    <label>Rendering quality <select id="quality"><option value="auto">Automatic</option><option value="high">High</option><option value="low">Gentle on battery</option></select></label>
+    <button class="reset-view text-link">Reset bottle view</button><p class="controls-note">Drag or use the arrow keys to turn the bottle. Your device’s reduced-motion preference is respected.</p>
+  </dialog>`
+
+const hero=app.querySelector<HTMLElement>('.site-hero')!
+const layer=app.querySelector<HTMLElement>('.scene-layer')!
+const target=app.querySelector<HTMLButtonElement>('.bottle-drag-target')!
+const status=app.querySelector<HTMLElement>('.load-status')!
+const errorPanel=app.querySelector<HTMLElement>('.scene-error')!
+const showError=(error:unknown)=>{console.error(error);status.hidden=true;errorPanel.hidden=false;target.hidden=true;hero.dataset.state='error'}
+app.querySelector('.retry')!.addEventListener('click',()=>location.reload())
+
+const openDialog=(id:string)=>{document.querySelectorAll<HTMLDialogElement>('dialog[open]').forEach(d=>d.close());app.querySelector<HTMLDialogElement>(id)!.showModal()}
+for(const [button,id] of [['.header-menu','#menu-dialog'],['.header-search','#search-dialog'],['.mail-toggle','#mail-dialog'],['.scene-controls-toggle','#controls-dialog']]) {
+  app.querySelector(button)!.addEventListener('click',()=>openDialog(id))
+}
+app.querySelectorAll<HTMLDialogElement>('dialog').forEach(dialog=>{
+  dialog.querySelector('.dialog-close')!.addEventListener('click',()=>dialog.close())
+  dialog.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>dialog.close()))
+  dialog.addEventListener('click',event=>{if(event.target===dialog){const b=dialog.getBoundingClientRect();if(event.clientX<b.left||event.clientX>b.right||event.clientY<b.top||event.clientY>b.bottom)dialog.close()}})
+})
+app.querySelector<HTMLInputElement>('#site-search')!.addEventListener('input',event=>{
+  const query=(event.target as HTMLInputElement).value.trim().toLowerCase();let count=0
+  app.querySelectorAll<HTMLAnchorElement>('.search-results a').forEach(a=>{a.hidden=!(a.dataset.terms+' '+a.textContent).toLowerCase().includes(query);if(!a.hidden)count++})
+  app.querySelector<HTMLElement>('.search-empty')!.hidden=count>0
+})
+const reducedQuery=matchMedia('(prefers-reduced-motion: reduce)')
+let reduced=reducedQuery.matches
+reducedQuery.addEventListener('change',()=>{reduced=reducedQuery.matches})
+
+// Optional quiet, generated ambience starts only after the visitor presses play.
+let audio:AudioContext|undefined, gain:GainNode|undefined
+const music=app.querySelector<HTMLButtonElement>('.music-toggle')!
+music.addEventListener('click',async()=>{
+  try {
+    if(!audio){audio=new AudioContext();gain=audio.createGain();gain.gain.value=0;gain.connect(audio.destination)
+      for(const frequency of [110,164.81,220.12]){const oscillator=audio.createOscillator();oscillator.type='sine';oscillator.frequency.value=frequency;oscillator.connect(gain);oscillator.start()}}
+    const playing=music.getAttribute('aria-pressed')!=='true'
+    await audio.resume();gain!.gain.setTargetAtTime(playing?.012:0,audio.currentTime,.6)
+    music.setAttribute('aria-pressed',String(playing));music.setAttribute('aria-label',playing?'Mute ambient sound':'Play ambient sound')
+  } catch {music.setAttribute('aria-label','Ambient sound unavailable')}
+})
+
+async function start() {
+  const renderer=new THREE.WebGLRenderer({antialias:false,alpha:false,powerPreference:'high-performance'})
+  renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1
+  layer.append(renderer.domElement)
+  const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(35,1,.1,40)
+  camera.position.z=5
+  const stage=createOpticalStage(renderer,scene,camera)
+  const root=new THREE.Group();root.name='Original Nocturne flacon';scene.add(root)
+  const key=new THREE.DirectionalLight('#ffdfb0',2.5);key.position.set(-3,3,4);scene.add(key)
+  const rim=new THREE.DirectionalLight('#ffb963',2.1);rim.position.set(3,2,-1);scene.add(rim)
+  const moon=new THREE.DirectionalLight('#90b6d5',.65);moon.position.set(-1,6,-4);scene.add(moon)
+  const ambient=new THREE.HemisphereLight('#71848b','#342712',.25);scene.add(ambient)
+  const warm=new THREE.PointLight('#ffbf69',2.2,8,2);warm.position.set(.15,.1,-1.4);scene.add(warm)
+  let garden:ReturnType<typeof createGarden>|undefined, bottleSize:THREE.Vector3|undefined
+  let floor=.25, yaw=0, velocity=0, dragging=false, lastX=0, previousTime=0, inView=true, quality='auto', pixelCap=1.5, adaptiveLow=false
+  let lastPointer=new THREE.Vector2(), lastPointerTime=0, rebuildTimer:number|undefined
+  const qualitySelect=app.querySelector<HTMLSelectElement>('#quality')!
+  app.querySelector<HTMLInputElement>('#exposure')!.addEventListener('input',e=>{renderer.toneMappingExposure=Number((e.target as HTMLInputElement).value)})
+  qualitySelect.addEventListener('change',()=>{quality=qualitySelect.value;adaptiveLow=false;pixelCap=quality==='low'?1:quality==='high'?2:1.5;resize();rebuildGarden()})
+  app.querySelector('.reset-view')!.addEventListener('click',()=>{yaw=0;velocity=0;root.rotation.y=0})
+
+  function frame() {
+    if(!bottleSize)return
+    const w=hero.clientWidth,h=hero.clientHeight,portrait=w/h<.9
+    const viewHeight=2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*camera.position.z
+    // Reference: top 23%, base 74%, centered. Portrait gets its own framing.
+    const height=portrait?(h<720?.40:.44):w/h<1.4?.49:.52
+    const width=portrait?.59:w/h<1.4?.43:.29
+    const scale=Math.min(viewHeight*height/bottleSize.y,viewHeight*camera.aspect*width/bottleSize.x)
+    root.scale.setScalar(scale)
+    root.position.y=viewHeight*(portrait?.035:.012)
+    floor=.5+root.position.y/viewHeight-bottleSize.y*scale/viewHeight/2
+    target.style.width=`${bottleSize.x*scale/(viewHeight*camera.aspect)*w*1.15}px`
+    target.style.height=`${bottleSize.y*scale/viewHeight*h*1.06}px`
+    target.style.top=`${(.5-root.position.y/viewHeight)*100}%`
+    hero.style.setProperty('--copy-top',`${Math.min(82,Math.max(76,(1-floor)*100+5))}%`)
+  }
+  function resize() {
+    const w=hero.clientWidth,h=hero.clientHeight
+    camera.aspect=w/h;camera.fov=w/h<.9?38:35;camera.updateProjectionMatrix()
+    renderer.setPixelRatio(Math.min(devicePixelRatio,pixelCap,w<700?1.5:2))
+    renderer.setSize(w,h,false);frame()
+  }
+  function rebuildGarden(){garden?.dispose();garden=createGarden(renderer,scene,camera,stage,hero.clientWidth<700||quality==='low'||adaptiveLow);hero.dataset.particles=String(garden.count)}
+  resize();rebuildGarden()
+  const resizeObserver=new ResizeObserver(()=>{resize();window.clearTimeout(rebuildTimer);rebuildTimer=window.setTimeout(rebuildGarden,180)})
+  resizeObserver.observe(hero)
+
+  target.addEventListener('pointerdown',e=>{if(e.button!==0)return;dragging=true;lastX=e.clientX;velocity=0;target.setPointerCapture(e.pointerId);target.classList.add('is-dragging')})
+  target.addEventListener('pointermove',e=>{if(!dragging)return;const delta=e.clientX-lastX;lastX=e.clientX;velocity=THREE.MathUtils.clamp(delta*.004,-.07,.07);yaw+=velocity;root.rotation.y=yaw})
+  const release=()=>{dragging=false;target.classList.remove('is-dragging')}
+  target.addEventListener('pointerup',release);target.addEventListener('pointercancel',release);target.addEventListener('lostpointercapture',release)
+  target.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();velocity=0;yaw+=(e.key==='ArrowRight'?1:-1)*.15;root.rotation.y=yaw}})
+  hero.addEventListener('pointermove',e=>{const b=hero.getBoundingClientRect(),x=(e.clientX-b.left)/b.width*2-1,y=1-(e.clientY-b.top)/b.height*2
+    const now=performance.now(),delta=Math.max((now-lastPointerTime)/1000,.016)
+    const speed=Math.min(Math.hypot(x-lastPointer.x,y-lastPointer.y)/delta,5)
+    garden?.pointer(x,y,speed);lastPointer.set(x,y);lastPointerTime=now})
+  hero.addEventListener('pointerleave',()=>garden?.leave())
+  const observer=new IntersectionObserver(entries=>{inView=entries[0].isIntersecting},{threshold:.02});observer.observe(hero)
+  renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();renderer.setAnimationLoop(null);showError('Graphics context lost')})
+  renderer.domElement.addEventListener('webglcontextrestored',()=>location.reload())
+
+  const gltf=await new GLTFLoader().loadAsync(new URL('../Public/Assets/Models/nocturne-bottle.glb',import.meta.url).href)
+  stage.configure(gltf.scene)
+  const bounds=new THREE.Box3().setFromObject(gltf.scene);bottleSize=bounds.getSize(new THREE.Vector3())
+  gltf.scene.position.sub(bounds.getCenter(new THREE.Vector3()));root.add(gltf.scene);frame()
+  target.hidden=false;status.hidden=true;hero.dataset.state='ready'
+  let frameCount=0,slowFrames=0,activeTime=0
+  renderer.setAnimationLoop(now=>{
+    const delta=previousTime?Math.min((now-previousTime)/1000,.05):1/60;previousTime=now
+    if(document.hidden||!inView)return
+    activeTime+=delta
+    if(!dragging){velocity*=Math.exp(-delta*7);if(reduced)velocity=0;yaw+=velocity;root.rotation.y=yaw}
+    garden?.tick(activeTime,delta,reduced);stage.render(activeTime,floor,reduced)
+    frameCount++
+    if(quality==='auto' && frameCount>120){if(delta>.03)slowFrames++;if(frameCount===240){if(slowFrames>85&&pixelCap>1){pixelCap=1;adaptiveLow=true;resize();rebuildGarden()}frameCount=0;slowFrames=0}}
+    // Inspectable diagnostics without making the production scene mutable.
+    if(frameCount%60===0){hero.dataset.rotation=yaw.toFixed(3);hero.dataset.pixelRatio=String(renderer.getPixelRatio());hero.dataset.frameMs=(delta*1000).toFixed(1)}
+  })
+  if(import.meta.env.DEV)Object.assign(window,{__nocturneAudit:()=>({bottle:stage.audit(),particles:garden?.count,rotation:yaw,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio()})})
+  window.addEventListener('pagehide',()=>{renderer.setAnimationLoop(null);observer.disconnect();resizeObserver.disconnect();garden?.dispose();stage.dispose();renderer.dispose();void audio?.close()},{once:true})
+  window.addEventListener('pageshow',event=>{if(event.persisted)location.reload()})
+}
+start().catch(showError)
+const header=app.querySelector<HTMLElement>('.site-header')!
+window.addEventListener('scroll',()=>header.classList.toggle('is-scrolled',scrollY>hero.clientHeight*.85),{passive:true})
+document.addEventListener('visibilitychange',()=>{if(audio&&document.hidden)void audio.suspend();else if(audio&&music.getAttribute('aria-pressed')==='true')void audio.resume()})

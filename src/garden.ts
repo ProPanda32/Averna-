@@ -1,0 +1,233 @@
+import * as THREE from 'three'
+import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { WORLD } from './optical-stage'
+
+export function seeded(seed: number) {
+  return () => { seed |= 0; seed = seed + 0x6d2b79f5 | 0; let t = Math.imul(seed ^ seed >>> 15,1 | seed);
+    t = t + Math.imul(t ^ t >>> 7,61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296 }
+}
+type Stage = { backdrop: THREE.Texture }
+const palette = ['#bc9248','#e6d7b1','#a75179','#683d72','#40522c','#d9aa71']
+
+/** One deterministic 3D garden. Screen-space anchors are recomposed for portrait;
+ * depth, real geometry and camera projection provide perspective and parallax. */
+export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, stage: Stage, compact: boolean) {
+  const root = new THREE.Group(); root.name = 'Living garden'; scene.add(root)
+  const random = seeded(83107)
+  const aspect = camera.aspect
+  const portrait = aspect < .9
+  const vh = (z: number) => 2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*(camera.position.z-z)
+  const world = (x: number, y: number, z: number) => new THREE.Vector3(x*vh(z)*aspect/2,y*vh(z)/2,z)
+  const r = (a: number,b: number) => a+(b-a)*random()
+  const exclusion = portrait ? .39 : .225
+  const clusters = Array.from({length: 120},(_,i) => {
+    let x = r(-1.2,1.2), y = r(-.57,1.3)
+    // The banks have different profiles, not mirrored wings. Their irregular
+    // inner edges open around the product, then fold back across the top.
+    const bankEdge=exclusion+.045+Math.sin(y*7+(x<0?1.6:.1))*.055
+    if (Math.abs(x)<bankEdge) x = (x<0?-1:1)*(bankEdge+random()*.25)
+    if (i<22) { x=r(-1.15,1.15); y=r(-.66,-.43); if(Math.abs(x)<exclusion) x+=(x<0?-1:1)*exclusion }
+    return {x,y,z:r(-5.2,-.6),spread:r(.075,.20)}
+  })
+  function sample() {
+    const c=clusters[Math.floor(random()*clusters.length)]
+    const a=random()*Math.PI*2, d=Math.sqrt(random())*c.spread
+    let x=c.x+Math.cos(a)*d, y=c.y+Math.sin(a)*d*1.7
+    if(Math.abs(x)<exclusion && y>-.5 && y<.64) x=(x<0?-1:1)*(exclusion+random()*.12)
+    return world(x,y,c.z+r(-.7,.7))
+  }
+  const dummy = new THREE.Object3D()
+  const color = new THREE.Color()
+  const mossMaterial = new THREE.MeshStandardMaterial({color:'#76813d',roughness:.82,metalness:.08})
+  mossMaterial.onBeforeCompile = s => {
+    s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 mossPosition;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nmossPosition=position;')
+    s.fragmentShader=s.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 mossPosition;')
+      .replace('#include <color_fragment>',`#include <color_fragment>
+        float n=sin(mossPosition.x*43.)*sin(mossPosition.y*47.)*sin(mossPosition.z*39.);
+        diffuseColor.rgb*=.55+.45*smoothstep(-.7,.8,n);`)
+  }
+  const mossCount = compact?7000:18000
+  const moss = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0),mossMaterial,mossCount)
+  moss.name='Moss and lichen'; moss.layers.set(WORLD)
+  for(let i=0;i<mossCount;i++) {
+    dummy.position.copy(sample()); const size=r(.006,.024)
+    dummy.scale.set(size*r(.6,1.7),size*r(.6,1.5),size)
+    dummy.rotation.set(r(0,6),r(0,6),r(0,6)); dummy.updateMatrix(); moss.setMatrixAt(i,dummy.matrix)
+    color.setHSL(r(.17,.28),r(.25,.65),r(.02,.13)); moss.setColorAt(i,color)
+  }
+  root.add(moss)
+
+  // Irregular, asymmetric woody stems and tapered leaves, with a few bead flowers.
+  const branchMaterial = new THREE.MeshStandardMaterial({color:'#373827',roughness:.62,metalness:.15})
+  const leafMaterial = new THREE.MeshPhysicalMaterial({color:'#879059',roughness:.38,metalness:.12,clearcoat:.6,side:THREE.DoubleSide})
+  const leafGeometry = new THREE.SphereGeometry(1,5,3)
+  const leafCount=compact?1700:3600
+  const leaves = new THREE.InstancedMesh(leafGeometry,leafMaterial,leafCount); leaves.layers.set(WORLD); leaves.name='Wet leaves'
+  let leafIndex=0
+  const stems:THREE.BufferGeometry[]=[]
+  for(let i=0;i<(compact?44:83);i++) {
+    const c=clusters[i%clusters.length]
+    const points = Array.from({length:6},(_,j)=>world(c.x+Math.sin(j*.64+i)*.07+j*(i%2?-.013:.018),c.y+j*.055,c.z+Math.sin(j)*.16))
+    const curve=new THREE.CatmullRomCurve3(points)
+    stems.push(new THREE.TubeGeometry(curve,18,r(.002,.006),4,false))
+    for(let j=0;j<44 && leafIndex<leafCount;j++,leafIndex++) {
+      const t=random(), p=curve.getPoint(t), sign=j%2?1:-1
+      dummy.position.copy(p).add(new THREE.Vector3(sign*r(.015,.065),r(-.025,.03),r(-.025,.025)))
+      const size=r(.015,.045)*(1-t*.45)
+      dummy.scale.set(size,size*.27,size*.55); dummy.rotation.set(r(-1,1),r(-1,1),sign*r(.25,1.2))
+      dummy.updateMatrix(); leaves.setMatrixAt(leafIndex,dummy.matrix)
+      color.setHSL(r(.18,.30),r(.2,.55),r(.045,.17)); leaves.setColorAt(leafIndex,color)
+    }
+  }
+  const branches=new THREE.Mesh(mergeGeometries(stems),branchMaterial)
+  branches.name='Merged botanical stems';branches.layers.set(WORLD);root.add(branches)
+  stems.forEach(g=>g.dispose())
+  leaves.count=leafIndex; root.add(leaves)
+
+  const pearl = new THREE.MeshPhysicalMaterial({color:'#d9c9b0',roughness:.42,metalness:.04,clearcoat:.25,specularIntensity:.55})
+  pearl.onBeforeCompile = s => {
+    s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 marbleP;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nmarbleP=position;')
+    s.fragmentShader=s.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 marbleP;')
+      .replace('#include <color_fragment>',`#include <color_fragment>
+      vec3 q=normalize(marbleP)*3.;
+      float vein=abs(sin(q.x*4.+sin(q.y*5.+sin(q.z*4.))*1.8));
+      float fine=1.-smoothstep(.025,.11,vein);
+      diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.24,.12,.027),fine*.97);`)
+  }
+  const amber = new THREE.MeshPhysicalMaterial({color:'#f5c177',roughness:.045,metalness:.08,transmission:.87,thickness:.14,ior:1.46,attenuationColor:new THREE.Color('#ad6429'),attenuationDistance:.5})
+  const pink = new THREE.MeshPhysicalMaterial({color:'#b65e90',roughness:.1,metalness:.12,transmission:.65,thickness:.12,ior:1.45,clearcoat:1})
+  const glass = new THREE.MeshPhysicalMaterial({color:'#fff4e3',roughness:.025,transmission:1,thickness:.12,ior:1.45})
+  // Orbs are excluded from the backdrop capture, then refract that completed
+  // capture in the final pass. Never read and write the same GPU texture.
+  for(const m of [amber,pink,glass]) {
+    m.onBeforeCompile=s=>{
+      s.uniforms.gardenMap={value:stage.backdrop}; s.uniforms.gardenSize={value:new THREE.Vector2(1,1)}
+      m.userData.shader=s
+      s.fragmentShader=s.fragmentShader.replace('#include <transmission_pars_fragment>',THREE.ShaderChunk.transmission_pars_fragment.replaceAll('transmissionSamplerMap','gardenMap').replaceAll('transmissionSamplerSize','gardenSize'))
+    }
+    m.customProgramCacheKey=()=> 'garden-orb'
+  }
+  const gold=new THREE.MeshStandardMaterial({color:'#b88b42',metalness:.94,roughness:.2})
+  const mossOrb=mossMaterial.clone();mossOrb.color.set('#263813');mossOrb.onBeforeCompile=mossMaterial.onBeforeCompile
+  const mossGeometry=new THREE.IcosahedronGeometry(1,3)
+  const mossVertices=mossGeometry.attributes.position
+  for(let i=0;i<mossVertices.count;i++){
+    const p=new THREE.Vector3().fromBufferAttribute(mossVertices,i)
+    const bump=1+.07*Math.sin(p.x*23)*Math.cos(p.y*31)*Math.sin(p.z*27)
+    mossVertices.setXYZ(i,p.x*bump,p.y*bump,p.z*bump)
+  }
+  mossGeometry.computeVertexNormals()
+  const materials=[glass,pink,amber,mossOrb,pearl,gold]
+  const spheres: {mesh:THREE.Mesh,home:THREE.Vector3,phase:number}[]=[]
+  const orbGeometry=new THREE.SphereGeometry(1,32,24)
+  // Large accents are deliberately sparse. Depth-of-field softens these edges.
+  const accents=[[-.99,-.62,2.65,.23,4],[1.02,-.86,2.7,.24,4],[-.68,-.85,2.45,.16,1],
+    [.84,-.61,1.8,.16,3],[-.49,.43,-.15,.13,0],[.62,.02,-.8,.10,4],
+    [.35,-.37,.1,.10,4],[-.54,-.34,-.25,.09,4],[.87,.26,-.6,.10,1],[-.72,.28,-.6,.07,4]]
+  const orbCount=compact?32:57
+  for(let i=0;i<orbCount;i++) {
+    let x:number,y:number,z:number,radius:number,kind:number
+    if(i<accents.length){[x,y,z,radius,kind]=accents[i];if(portrait){x*=1.12;radius*=.62}}
+    else {
+      x=r(-1.05,1.05);y=r(-.65,.85);z=r(-3.6,.6);radius=r(.022,.072)
+      if(Math.abs(x)<exclusion+.05)x=(x<0?-1:1)*(exclusion+.07+random()*.28)
+      kind=i%6;if(kind===4 && i%3)kind=0
+    }
+    const mesh=new THREE.Mesh(kind===3?mossGeometry:orbGeometry,materials[kind]); mesh.position.copy(world(x,y,z));mesh.scale.setScalar(radius)
+    mesh.rotation.set(r(0,6),r(0,6),r(0,6));mesh.layers.set([0,1,2].includes(kind)?7:WORLD)
+    mesh.name=['Clear bubble','Rose glass','Amber glass','Moss sphere','Veined pearl','Gold bead'][kind]
+    root.add(mesh);spheres.push({mesh,home:mesh.position.clone(),phase:random()*6})
+  }
+
+  // Thousands of small, physically shaded ground beads make the transition
+  // from living banks to the reflecting water; they are not large white balls.
+  const groundCount=compact?750:1800
+  const beads=new THREE.InstancedMesh(new THREE.SphereGeometry(1,7,5),new THREE.MeshStandardMaterial({roughness:.21,metalness:.68}),groundCount)
+  beads.layers.set(WORLD);beads.name='Ground dew'
+  for(let i=0;i<groundCount;i++) {
+    const z=r(-4.8,2.8), x=r(-1.15,1.15)
+    const radius=r(.004,.019)
+    dummy.position.copy(world(x,0,z));dummy.position.y=-vh(0)*(portrait?.185:.248)+radius
+    if(Math.abs(x)<.24 && z>-.5 && random()<.85)dummy.position.x+=(x<0?-1:1)*vh(z)*aspect*.25
+    dummy.scale.setScalar(radius);dummy.updateMatrix();beads.setMatrixAt(i,dummy.matrix)
+    color.set(palette[Math.floor(random()*palette.length)]).multiplyScalar(r(.35,1.2));beads.setColorAt(i,color)
+  }
+  root.add(beads)
+
+  const dimension=compact?96:160, count=dimension*dimension
+  const gpu=new GPUComputationRenderer(dimension,dimension,renderer)
+  const origin=gpu.createTexture(), zero=gpu.createTexture()
+  const positions=new Float32Array(count*3), refs=new Float32Array(count*2), colors=new Float32Array(count*3), sizes=new Float32Array(count)
+  for(let i=0;i<count;i++) {
+    let p=sample()
+    if(i%5===0) {
+      let x=r(-1.08,1.08),y=r(-.65,1.15)
+      if(Math.abs(x)<exclusion && y>-.48&&y<.67)x+=(x<0?-1:1)*exclusion
+      p=world(x,y,r(-4.8,.65))
+    }
+    positions.set(p.toArray(),i*3);origin.image.data.set([p.x,p.y,p.z,random()*6.28],i*4)
+    refs.set([(i%dimension+.5)/dimension,(Math.floor(i/dimension)+.5)/dimension],i*2)
+    const botanical=Math.sin(p.x*2.1+Math.sin(p.y*3.3)+p.z*.65)
+    const hue=botanical>.45?2:botanical<-.25?4:random()<.11?1:0
+    color.set(palette[hue]).multiplyScalar(r(.3,hue===4?1.1:2.2));colors.set(color.toArray(),i*3)
+    sizes[i]=i%127===0?r(4,7):r(1.1,3.8)
+  }
+  const pointer={value:new THREE.Vector3(99,99,0)}, speed={value:0}, dt={value:1/60}, elapsed={value:0}, active={value:0}
+  const velocity=gpu.addVariable('velocity',`
+    uniform sampler2D origins;uniform vec3 pointer;uniform float dt,speed,pointerActive;
+    void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;
+      vec3 p=texture2D(origins,uv).xyz;vec3 o=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;
+      vec3 d=p+o-pointer;d.z*=.15;float influence=exp(-dot(d,d)*8.)*pointerActive;
+      vec3 force=normalize(d+vec3(.0001))*influence*(.035+min(speed,4.)*.7);
+      v+=(force-o*3.8)*dt;v*=exp(-dt*3.2);
+      gl_FragColor=vec4(clamp(v,vec3(-.8),vec3(.8)),1.);}`,zero)
+  const offsets=gpu.addVariable('offsets',`uniform float dt;void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;vec3 p=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;gl_FragColor=vec4(p+v*dt,1.);}`,zero.clone())
+  gpu.setVariableDependencies(velocity,[velocity,offsets]);gpu.setVariableDependencies(offsets,[velocity,offsets])
+  Object.assign(velocity.material.uniforms,{origins:{value:origin},pointer,speed,dt,pointerActive:active})
+  offsets.material.uniforms.dt=dt
+  const gpuError=gpu.init()
+  if(gpuError) console.warn('Particle simulation unavailable; using animated vertex field:',gpuError)
+  const material=new THREE.ShaderMaterial({
+    transparent:true,depthWrite:false,blending:THREE.NormalBlending,
+    uniforms:{offsetMap:{value:zero},simulate:{value:gpuError?0:1},time:elapsed,pixelRatio:{value:renderer.getPixelRatio()}},
+    vertexShader:`attribute vec2 reference;attribute float beadSize;attribute vec3 tint;
+      uniform sampler2D offsetMap;uniform float simulate,time,pixelRatio;varying vec3 vColor;varying float fog;
+      void main(){vec3 p=position+texture2D(offsetMap,reference).xyz*simulate;
+        p+=vec3(sin(time*.18+p.y*3.),cos(time*.13+p.x*2.),0.)*.009;
+        vec4 v=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*v;
+        gl_PointSize=clamp(beadSize*pixelRatio*5./-v.z,1.,14.);vColor=tint;fog=exp(-max(-v.z-6.,0.)*.08);}`,
+    fragmentShader:`varying vec3 vColor;varying float fog;void main(){vec2 p=gl_PointCoord*2.-1.;float r=dot(p,p);if(r>1.)discard;
+      float z=sqrt(1.-r);vec3 n=vec3(p,z);float diffuse=.18+.55*max(dot(n,normalize(vec3(-.6,.8,1.))),0.);
+      float spec=pow(max(dot(n,normalize(vec3(-.4,.5,1.))),0.),30.);
+      vec3 c=vColor*(diffuse+.18)+mix(vColor,vec3(1.3,.93,.57),.3)*spec;
+      gl_FragColor=vec4(c*fog,(1.-smoothstep(.64,1.,r))*.92);}`,
+  })
+  const geometry=new THREE.BufferGeometry()
+  geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));geometry.setAttribute('reference',new THREE.BufferAttribute(refs,2))
+  geometry.setAttribute('tint',new THREE.BufferAttribute(colors,3));geometry.setAttribute('beadSize',new THREE.BufferAttribute(sizes,1))
+  const particles=new THREE.Points(geometry,material);particles.layers.set(WORLD);particles.frustumCulled=false;particles.name='GPU botanical bead field';root.add(particles)
+  const drawingSize=new THREE.Vector2()
+  return {
+    count, root,
+    pointer(x:number,y:number,movement:number){pointer.value.copy(world(x,y,-.8));speed.value=movement;active.value=1},
+    leave(){active.value=0},
+    tick(seconds:number,delta:number,reduced:boolean){
+      elapsed.value=reduced?0:seconds;dt.value=Math.min(delta,.033)
+      material.uniforms.pixelRatio.value=renderer.getPixelRatio()
+      if(!gpuError&&!reduced){gpu.compute();material.uniforms.offsetMap.value=gpu.getCurrentRenderTarget(offsets).texture}
+      renderer.getDrawingBufferSize(drawingSize)
+      for(const m of [amber,pink,glass])if(m.userData.shader)m.userData.shader.uniforms.gardenSize.value.copy(drawingSize)
+      speed.value*=Math.exp(-delta*4)
+      for(const {mesh,home,phase} of spheres){
+        mesh.position.copy(home)
+        if(!reduced){mesh.position.y+=Math.sin(seconds*.3+phase)*.006;mesh.rotation.y+=delta*.015}
+      }
+    },
+    dispose(){root.removeFromParent();const geometries=new Set<THREE.BufferGeometry>(),mats=new Set<THREE.Material>();
+      root.traverse(o=>{if(o instanceof THREE.Mesh||o instanceof THREE.Points){geometries.add(o.geometry);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>mats.add(m))}})
+      geometries.forEach(g=>g.dispose());mats.forEach(m=>m.dispose());gpu.dispose();origin.dispose();zero.dispose()},
+  }
+}
