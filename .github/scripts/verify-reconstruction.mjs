@@ -2,21 +2,38 @@ import { chromium } from 'playwright'
 import { mkdir, writeFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 
-const browser=await chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']})
+const browser=await chromium.launch({
+  executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||undefined,
+  args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'],
+})
 const output='.github/preview'
 await mkdir(output,{recursive:true})
 const errors=[]
 const report=[]
 const viewports=[['desktop',1580,755],['large-desktop',1920,1080],['laptop',1366,768],['tablet-landscape',1024,768],['tablet-portrait',768,1024],['phone',390,844],['small-phone',360,640]]
+const waitForHero=async page=>{
+  await page.locator('.site-hero[data-state="ready"]').waitFor({state:'visible',timeout:60000})
+  await page.locator('.site-hero canvas').waitFor({state:'visible',timeout:60000})
+  await page.locator('.bottle-drag-target').waitFor({state:'visible',timeout:60000})
+  await page.waitForFunction(()=>{
+    if(typeof window.__nocturneAudit!=='function')return false
+    const audit=window.__nocturneAudit()
+    const roles=new Set(audit.bottle?.map(material=>material.role))
+    return audit.particles>0 && ['glass','liquid','cap','gold'].every(role=>roles.has(role))
+  },undefined,{timeout:60000})
+}
+const loadHero=async(page,reload=false)=>{
+  if(reload)await page.reload({waitUntil:'domcontentloaded',timeout:60000})
+  else await page.goto('http://127.0.0.1:5173/',{waitUntil:'domcontentloaded',timeout:60000})
+  await waitForHero(page)
+}
 try {
   const page=await browser.newPage()
   page.on('pageerror',e=>errors.push(e.message))
   page.on('console',msg=>{if(msg.type()==='error')errors.push(msg.text())})
   for(const [name,width,height] of viewports){
     await page.setViewportSize({width,height})
-    await page.goto('http://127.0.0.1:5173/',{waitUntil:'networkidle',timeout:60000})
-    await page.locator('.site-hero[data-state="ready"]').waitFor({timeout:60000})
-    await page.waitForFunction(()=>Number(document.querySelector('.site-hero').dataset.particles)>0)
+    await loadHero(page)
     await page.waitForTimeout(1500)
     const box=await page.locator('.bottle-drag-target').boundingBox()
     const copy=await page.locator('.hero-copy').boundingBox()
@@ -37,8 +54,7 @@ try {
     report.push({name,width,height,bottleBounds:box,copyBounds:copy,...audit})
   }
   await page.setViewportSize({width:1366,height:768})
-  await page.goto('http://127.0.0.1:5173/',{waitUntil:'networkidle'})
-  await page.locator('.site-hero[data-state="ready"]').waitFor()
+  await loadHero(page)
   const before=await page.evaluate(()=>window.__nocturneAudit().rotation)
   const b=await page.locator('.bottle-drag-target').boundingBox()
   await page.mouse.move(b.x+b.width/2,b.y+b.height/2)
@@ -56,8 +72,7 @@ try {
   assert.equal(await page.locator('.search-results a:visible').count(),1)
   await page.keyboard.press('Escape')
   await page.emulateMedia({reducedMotion:'reduce'})
-  await page.reload({waitUntil:'networkidle'})
-  await page.locator('.site-hero[data-state="ready"]').waitFor()
+  await loadHero(page,true)
   const still=await page.evaluate(()=>window.__nocturneAudit().rotation)
   await page.waitForTimeout(300)
   assert.equal(await page.evaluate(()=>window.__nocturneAudit().rotation),still,'Reduced motion must not auto-rotate')
