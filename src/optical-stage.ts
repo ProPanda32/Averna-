@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { studioEnvironment } from './bottle-rendering'
+import type { StudioConfig } from './studio-config'
 
 export const WORLD = 6
 const CORE = 1, LIQUID = 2, GLASS = 3, LETTERS = 4
@@ -27,9 +28,9 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   })
   const sky = new THREE.ShaderMaterial({
     depthTest: false, depthWrite: false,
-    uniforms: { time, floorLine: floor, aspect: { value: 2 }, opticalFill: { value: 0 } }, vertexShader: screenVertex,
+    uniforms: { time, floorLine: floor, aspect: { value: 2 }, opticalFill: { value: 0 }, skyBlue:{value:new THREE.Color('#071019')},skyGold:{value:new THREE.Color('#38200c')},mistStrength:{value:1},skyGlow:{value:1} }, vertexShader: screenVertex,
     fragmentShader: `
-      varying vec2 vUv; uniform float time, floorLine, aspect,opticalFill;
+      varying vec2 vUv; uniform float time, floorLine, aspect,opticalFill,mistStrength,skyGlow;uniform vec3 skyBlue,skyGold;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
       void main(){
@@ -37,8 +38,8 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
         float mist=noise(p*vec2(5.,9.)+t)*.55+noise(p*vec2(13.,22.)-t)*.25;
         float blue=exp(-length((p-vec2(.66,1.05))*vec2(2.8,2.1))*3.);
         float gold=exp(-length((p-vec2(.50,.43))*vec2(6.,5.))*2.4);
-        vec3 c=vec3(.003,.005,.004)+vec3(.028,.065,.09)*blue*(.7+mist);
-        c+=vec3(.22,.105,.032)*gold*(.65+mist*.5);
+        vec3 c=vec3(.003,.005,.004)+skyBlue*blue*(.7+mist*mistStrength)*skyGlow;
+        c+=skyGold*gold*(.65+mist*.5)*skyGlow;
         float shaft=pow(max(0.,1.-abs(p.x+.55*p.y-.98)*5.),14.);
         c+=vec3(.025,.047,.057)*shaft*mist;
         float wet=1.-smoothstep(floorLine-.015,floorLine+.025,p.y);
@@ -53,11 +54,14 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   const copy = new THREE.MeshBasicMaterial({ map: backdrop.texture, depthTest: false, depthWrite: false, toneMapped: false })
   const film = new THREE.ShaderMaterial({
     uniforms: { frame: { value: image.texture }, depthMap: { value: image.depthTexture }, size, time, floor,
-      near: { value: camera.near }, far: { value: camera.far }, focus: { value: 5 }, softness: { value: 1 } },
+      near: { value: camera.near }, far: { value: camera.far }, focus: { value: 5 }, softness: { value: 1 },shadow:{value:1},
+      globalHue:{value:0},globalSaturation:{value:1},contrast:{value:1},brightness:{value:1},temperature:{value:0},warmth:{value:1},bloom:{value:.065},bloomThreshold:{value:.9},highlight:{value:1},strokeCount:{value:0},strokeData:{value:Array.from({length:64},()=>new THREE.Vector4())},strokeEffects:{value:Array.from({length:64},()=>new THREE.Vector4())} },
     vertexShader: screenVertex, depthTest: false, depthWrite: false,
     fragmentShader: `
       uniform sampler2D frame,depthMap; uniform vec2 size;
-      uniform float time,floor,near,far,focus,softness; varying vec2 vUv;
+      uniform float time,floor,near,far,focus,softness,globalHue,globalSaturation,contrast,brightness,temperature,warmth,bloom,bloomThreshold,highlight,shadow;
+      uniform int strokeCount;uniform vec4 strokeData[64],strokeEffects[64];varying vec2 vUv;
+      vec3 shiftHue(vec3 c,float angle){float cs=cos(angle),sn=sin(angle);return max(vec3((.299+.701*cs+.168*sn)*c.r+(.587-.587*cs+.330*sn)*c.g+(.114-.114*cs-.497*sn)*c.b,(.299-.299*cs-.328*sn)*c.r+(.587+.413*cs+.035*sn)*c.g+(.114-.114*cs+.292*sn)*c.b,(.299-.3*cs+1.25*sn)*c.r+(.587-.588*cs-1.05*sn)*c.g+(.114+.886*cs-.203*sn)*c.b),vec3(0.));}
       float distanceAt(vec2 p){float d=texture2D(depthMap,p).x;return near*far/(far-d*(far-near));}
       vec3 softImage(vec2 p,float r){
         vec2 t=r/size; vec3 c=texture2D(frame,p).rgb*.24;
@@ -78,10 +82,26 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
         float path=1.-smoothstep(.14,.42,abs(p.x-.5));
         float wet=step(p.y,floor)*path;
         c=mix(c,c*.45+reflected*vec3(.61,.52,.42)*exp(-below*4.),wet*.85);
+        c*=1.-wet*shadow*.25*exp(-pow((p.x-.5)*7.,2.)-below*20.);
         // Restrained local bloom preserves dark surround and avoids white clipping.
-        vec3 halo=max(softImage(p,5.)-.9,0.)*.065+max(softImage(p,12.)-1.3,0.)*.035;
+        vec3 halo=max(softImage(p,5.)-bloomThreshold,0.)*bloom+max(softImage(p,12.)-bloomThreshold*1.45,0.)*bloom*.54;
         c+=halo;
         c*=1.-.36*pow(length((p-.5)*vec2(1.1,.8)),1.7);
+        c=shiftHue(c,globalHue*6.2831853);
+        c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,globalSaturation);
+        c=(c-.18)*contrast+.18;c*=brightness;
+        c*=vec3(1.+temperature*.2+(warmth-1.)*.18,1.,1.-temperature*.2-(warmth-1.)*.12);
+        c+=max(c-.8,0.)*(highlight-1.);
+        // Creator brush strokes are localized screen-space color grades.
+        for(int i=0;i<64;i++){if(i>=strokeCount)break;
+          vec4 a=strokeData[i],e=strokeEffects[i];float d=distance(p,a.xy)/max(a.z,.001);
+          float mask=(1.-smoothstep(max(0.,1.-e.z),1.,d))*a.w*e.y;
+          if(e.x<.5)c=shiftHue(c,mask*e.w);
+          else if(e.x<1.5)c=mix(c,vec3(dot(c,vec3(.299,.587,.114))),-mask*e.w);
+          else if(e.x<2.5)c*=1.+mask*e.w;
+          else if(e.x<3.5)c*=vec3(1.+mask*e.w*.25,1.,1.-mask*e.w*.18);
+          else c+=max(c-.15,0.)*mask*e.w*.35;
+        }
         gl_FragColor=vec4(c,1.);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -92,6 +112,26 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   const screen = new THREE.Scene(); screen.add(quad)
   const screenCamera = new THREE.OrthographicCamera(-1,1,1,-1,0,1)
   const meshes: THREE.Mesh[] = []
+  function setLook(config:StudioConfig){
+    const a=config.atmosphere,l=config.lighting
+    sky.uniforms.skyBlue.value.set(a.background).lerp(new THREE.Color(a.fogColor),.5)
+    sky.uniforms.skyGold.value.set('#38200c').multiplyScalar(a.warmth)
+    sky.uniforms.mistStrength.value=a.fogDensity;sky.uniforms.skyGlow.value=a.glow
+    for(const [name,value] of Object.entries({globalHue:a.hue/360,globalSaturation:a.saturation,contrast:a.contrast,brightness:a.brightness,temperature:a.temperature,warmth:a.warmth,bloom:l.bloom,bloomThreshold:l.bloomThreshold,highlight:l.highlight,shadow:l.shadow,softness:a.depth}))film.uniforms[name].value=value
+    const ids={hue:0,saturation:1,brightness:2,warmth:3,glow:4}
+    const strokes=config.brush.strokes.slice(-64);film.uniforms.strokeCount.value=strokes.length
+    strokes.forEach((s,i)=>{film.uniforms.strokeData.value[i].set(s.x,1-s.y,s.size,s.opacity);film.uniforms.strokeEffects.value[i].set(ids[s.kind],s.strength,s.softness,s.strength)})
+  }
+  function setBottle(config:StudioConfig){
+    const b=config.bottle
+    meshes.forEach(mesh=>{const m=mesh.material as THREE.MeshPhysicalMaterial;switch(m.userData.role){
+      case 'glass':m.color.set(b.glassColor);m.attenuationColor.set(b.glassColor);m.transmission=b.glassTransmission;m.ior=b.glassIor;m.roughness=b.glassRoughness;m.envMapIntensity=b.glassReflection*b.highlight;break
+      case 'liquid':m.attenuationColor.set(b.liquidColor);m.attenuationDistance=b.liquidAbsorption;m.opacity=b.liquidOpacity;m.transparent=b.liquidOpacity<1;m.transmission=b.liquidTransmission;break
+      case 'cap':m.color.set(b.capColor);m.attenuationColor.set(b.capColor);m.ior=b.capIor;m.roughness=b.capRoughness;m.envMapIntensity=b.highlight;break
+      case 'gold':m.color.set(b.goldColor);m.roughness=b.goldRoughness;break
+    }})
+    sky.uniforms.opticalFill.value=b.highlight
+  }
 
   function transmission(material: THREE.MeshPhysicalMaterial, source: THREE.Texture, role: string) {
     material.onBeforeCompile = shader => {
@@ -218,9 +258,10 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
     camera.layers.mask = mask
     renderer.autoClear = true
   }
-  return { configure, render, transmission, backdrop: backdrop.texture,
+  return { configure, render, transmission, setLook, setBottle, backdrop: backdrop.texture,
+    lookAudit:()=>({brightness:film.uniforms.brightness.value,hue:film.uniforms.globalHue.value,mist:sky.uniforms.mistStrength.value,strokes:film.uniforms.strokeCount.value,bloom:film.uniforms.bloom.value}),
     audit: () => meshes.map(m => { const mat=m.material as THREE.MeshPhysicalMaterial; return {
-      name:m.name,role:mat.userData.role,transmission:mat.transmission,ior:mat.ior,metalness:mat.metalness,
+      name:m.name,role:mat.userData.role,transmission:mat.transmission,ior:mat.ior,metalness:mat.metalness,color:mat.color.getHexString(),roughness:mat.roughness,
     } }),
     dispose: () => { environment.dispose(); [backdrop,interior,image,liquidDepth,glassDepth].forEach(t=>t.dispose());
       [depth,sky,copy,film].forEach(m=>m.dispose()); quad.geometry.dispose() },

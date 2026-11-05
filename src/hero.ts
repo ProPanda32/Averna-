@@ -2,7 +2,11 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { createOpticalStage } from './optical-stage'
 import { createGarden } from './garden'
+import { approvedConfig, readDraft } from './studio-config'
+import type { StudioConfig } from './studio-config'
 import './hero.css'
+const creator=import.meta.env.DEV&&location.pathname.endsWith('/creator.html')
+const config:StudioConfig=creator?readDraft():approvedConfig()
 
 const icon = (path:string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`
 const menuIcon=icon('<path d="M3 6h18M3 12h18M3 18h18"/>')
@@ -109,18 +113,35 @@ async function start() {
   camera.position.z=5
   const stage=createOpticalStage(renderer,scene,camera)
   const root=new THREE.Group();root.name='Original Nocturne flacon';scene.add(root)
-  const key=new THREE.DirectionalLight('#ffdfb0',2.5);key.position.set(-3,3,4);scene.add(key)
-  const rim=new THREE.DirectionalLight('#ffb963',2.1);rim.position.set(3,2,-1);scene.add(rim)
-  const moon=new THREE.DirectionalLight('#90b6d5',.65);moon.position.set(-1,6,-4);scene.add(moon)
+  const key=new THREE.DirectionalLight('#ffdfb0',2.5);scene.add(key)
+  const rim=new THREE.DirectionalLight('#ffb963',2.1);scene.add(rim)
+  const moon=new THREE.DirectionalLight('#90b6d5',.65);scene.add(moon)
   const ambient=new THREE.HemisphereLight('#71848b','#342712',.25);scene.add(ambient)
-  const warm=new THREE.PointLight('#ffbf69',2.2,8,2);warm.position.set(.15,.1,-1.4);scene.add(warm)
+  const warm=new THREE.PointLight('#ffbf69',2.2,8,2);scene.add(warm)
   let garden:ReturnType<typeof createGarden>|undefined, bottleSize:THREE.Vector3|undefined
-  let floor=.25, yaw=0, velocity=0, dragging=false, lastX=0, previousTime=0, inView=true, quality='auto', pixelCap=1.5, adaptiveLow=false
+  let floor=.25, yaw=THREE.MathUtils.degToRad(config.bottle.rotationY), pitch=THREE.MathUtils.degToRad(config.bottle.rotationX), angularVelocity=0, verticalVelocity=0, dragging=false,settling=false,lastX=0,lastY=0,lastDragTime=0,previousTime=0,inView=true,quality='auto',pixelCap=1.5,adaptiveLow=false
+  let studio:Awaited<ReturnType<(typeof import('./creator-studio'))['mountStudio']>>|undefined,bottleDragStart:StudioConfig|undefined
   let lastPointer=new THREE.Vector2(), lastPointerTime=0, rebuildTimer:number|undefined
   const qualitySelect=app.querySelector<HTMLSelectElement>('#quality')!
   app.querySelector<HTMLInputElement>('#exposure')!.addEventListener('input',e=>{renderer.toneMappingExposure=Number((e.target as HTMLInputElement).value)})
   qualitySelect.addEventListener('change',()=>{quality=qualitySelect.value;adaptiveLow=false;pixelCap=quality==='low'?1:quality==='high'?2:1.5;resize();rebuildGarden()})
-  app.querySelector('.reset-view')!.addEventListener('click',()=>{yaw=0;velocity=0;root.rotation.y=0})
+  app.querySelector('.reset-view')!.addEventListener('click',()=>{yaw=0;pitch=0;angularVelocity=0;verticalVelocity=0;config.bottle.rotationY=0;config.bottle.rotationX=0;applyScene();studio?.refresh()})
+
+  function applyScene(path='all'){
+    const l=config.lighting,b=config.bottle,c=config.camera
+    key.color.set(l.keyColor).lerp(new THREE.Color(l.temperature>=0?'#ffb875':'#8ebcff'),Math.abs(l.temperature)*.45);key.intensity=l.key;key.position.set(l.keyX,l.keyY,l.keyZ)
+    rim.color.set(l.fillColor).lerp(new THREE.Color(l.temperature>=0?'#ffc18c':'#a5c6ff'),Math.abs(l.temperature)*.3);rim.intensity=l.fill;rim.position.set(l.fillX,l.fillY,l.fillZ)
+    moon.color.set(l.rimColor);moon.intensity=l.rim;moon.position.set(l.rimX,l.rimY,l.rimZ)
+    warm.color.set(l.warmColor);warm.intensity=l.warm;warm.position.set(l.warmX,l.warmY,l.warmZ)
+    ambient.intensity=l.ambient;scene.environmentIntensity=l.reflection
+    renderer.toneMappingExposure=l.exposure
+    camera.position.set(c.x,c.y,c.z);camera.rotation.set(THREE.MathUtils.degToRad(c.pitch),THREE.MathUtils.degToRad(c.yaw),THREE.MathUtils.degToRad(c.roll));camera.zoom=c.zoom
+    stage.setLook(config);stage.setBottle(config)
+    if(path==='all'||path.startsWith('particles'))garden?.updateParticles(path)
+    if(path==='all'||path.startsWith('spheres'))config.spheres.forEach(s=>garden?.updateSphere(s))
+    root.rotation.set(pitch,yaw,THREE.MathUtils.degToRad(b.rotationZ))
+    resize()
+  }
 
   function frame() {
     if(!bottleSize)return
@@ -129,31 +150,36 @@ async function start() {
     // Reference: top 23%, base 74%, centered. Portrait gets its own framing.
     const height=portrait?(h<720?.40:.44):w/h<1.4?.49:.52
     const width=portrait?.59:w/h<1.4?.43:.29
-    const scale=Math.min(viewHeight*height/bottleSize.y,viewHeight*camera.aspect*width/bottleSize.x)
+    const scale=Math.min(viewHeight*height/bottleSize.y,viewHeight*camera.aspect*width/bottleSize.x)*config.bottle.scale*(portrait?config.camera.mobileScale:1)
     root.scale.setScalar(scale)
-    root.position.y=viewHeight*(portrait?.035:.012)
+    root.position.set(config.bottle.x,viewHeight*(portrait?.035:.012)+config.bottle.y+viewHeight*(portrait?config.camera.mobileFraming:config.camera.framing),config.bottle.z)
     floor=.5+root.position.y/viewHeight-bottleSize.y*scale/viewHeight/2
     target.style.width=`${bottleSize.x*scale/(viewHeight*camera.aspect)*w*1.15}px`
     target.style.height=`${bottleSize.y*scale/viewHeight*h*1.06}px`
-    target.style.top=`${(.5-root.position.y/viewHeight)*100}%`
+    camera.updateMatrixWorld()
+    const projected=root.position.clone().project(camera)
+    target.style.left=`${(projected.x+1)*50}%`
+    target.style.top=`${(1-projected.y)*50}%`
     hero.style.setProperty('--copy-top',`${Math.min(82,Math.max(76,(1-floor)*100+5))}%`)
   }
   function resize() {
     const w=hero.clientWidth,h=hero.clientHeight
-    camera.aspect=w/h;camera.fov=w/h<.9?38:35;camera.updateProjectionMatrix()
+    camera.aspect=w/h;camera.fov=config.camera.fov+(w/h<.9?3:0);camera.updateProjectionMatrix()
     renderer.setPixelRatio(Math.min(devicePixelRatio,pixelCap,w<700?1.5:2))
     renderer.setSize(w,h,false);frame()
   }
-  function rebuildGarden(){garden?.dispose();garden=createGarden(renderer,scene,camera,stage,hero.clientWidth<700||quality==='low'||adaptiveLow);hero.dataset.particles=String(garden.count)}
+  function rebuildGarden(){garden?.dispose();garden=createGarden(renderer,scene,camera,stage,hero.clientWidth<700||quality==='low'||adaptiveLow,config);hero.dataset.particles=String(garden.count)}
   resize();rebuildGarden()
   const resizeObserver=new ResizeObserver(()=>{resize();window.clearTimeout(rebuildTimer);rebuildTimer=window.setTimeout(rebuildGarden,180)})
   resizeObserver.observe(hero)
 
-  target.addEventListener('pointerdown',e=>{if(e.button!==0)return;dragging=true;lastX=e.clientX;velocity=0;target.setPointerCapture(e.pointerId);target.classList.add('is-dragging')})
-  target.addEventListener('pointermove',e=>{if(!dragging)return;const delta=e.clientX-lastX;lastX=e.clientX;velocity=THREE.MathUtils.clamp(delta*.004,-.07,.07);yaw+=velocity;root.rotation.y=yaw})
-  const release=()=>{dragging=false;target.classList.remove('is-dragging')}
+  target.addEventListener('pointerdown',e=>{if(e.button!==0)return;dragging=true;bottleDragStart=creator?structuredClone(config):undefined;lastX=e.clientX;lastY=e.clientY;lastDragTime=e.timeStamp;angularVelocity=0;verticalVelocity=0;target.setPointerCapture(e.pointerId);target.classList.add('is-dragging')})
+  target.addEventListener('pointermove',e=>{if(!dragging)return;const dx=e.clientX-lastX,dy=e.clientY-lastY,dt=Math.max((e.timeStamp-lastDragTime)/1000,1/120);lastX=e.clientX;lastY=e.clientY;lastDragTime=e.timeStamp
+    const b=config.bottle;const max=b.maxRotationSpeed;yaw+=dx*b.rotationSensitivity*b.rotationSpeed;pitch=THREE.MathUtils.clamp(pitch+dy*b.verticalSensitivity*b.rotationSpeed,-THREE.MathUtils.degToRad(b.verticalLimit),THREE.MathUtils.degToRad(b.verticalLimit))
+    angularVelocity=THREE.MathUtils.clamp(dx*b.rotationSensitivity*b.rotationSpeed*b.momentumSensitivity/dt,-max,max);verticalVelocity=THREE.MathUtils.clamp(dy*b.verticalSensitivity*b.rotationSpeed*b.momentumSensitivity/dt,-max,max);root.rotation.set(pitch,yaw,root.rotation.z)})
+  const release=()=>{if(dragging&&creator){config.bottle.rotationY=THREE.MathUtils.euclideanModulo(THREE.MathUtils.radToDeg(yaw)+180,360)-180;config.bottle.rotationX=THREE.MathUtils.radToDeg(pitch);if(bottleDragStart)studio?.record(bottleDragStart);studio?.refresh();settling=true}bottleDragStart=undefined;dragging=false;target.classList.remove('is-dragging')}
   target.addEventListener('pointerup',release);target.addEventListener('pointercancel',release);target.addEventListener('lostpointercapture',release)
-  target.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();velocity=0;yaw+=(e.key==='ArrowRight'?1:-1)*.15;root.rotation.y=yaw}})
+  target.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();angularVelocity=0;yaw+=(e.key==='ArrowRight'?1:-1)*.15;root.rotation.y=yaw}})
   hero.addEventListener('pointermove',e=>{const b=hero.getBoundingClientRect(),x=(e.clientX-b.left)/b.width*2-1,y=1-(e.clientY-b.top)/b.height*2
     const now=performance.now(),delta=Math.max((now-lastPointerTime)/1000,.016)
     const speed=Math.min(Math.hypot(x-lastPointer.x,y-lastPointer.y)/delta,5)
@@ -167,20 +193,51 @@ async function start() {
   stage.configure(gltf.scene)
   const bounds=new THREE.Box3().setFromObject(gltf.scene);bottleSize=bounds.getSize(new THREE.Vector3())
   gltf.scene.position.sub(bounds.getCenter(new THREE.Vector3()));root.add(gltf.scene);frame()
-  target.hidden=false;status.hidden=true;hero.dataset.state='ready'
+  target.hidden=false;status.hidden=true;hero.dataset.state='ready';applyScene()
+  if(creator){
+    const {mountStudio}=await import('./creator-studio')
+    const raycaster=new THREE.Raycaster(),pointerNdc=new THREE.Vector2(),plane=new THREE.Plane(),hit=new THREE.Vector3()
+    raycaster.layers.enable(6);raycaster.layers.enable(7)
+    let selected:string|undefined,dragSphere:string|undefined,dragStart:StudioConfig|undefined,sphereLast=0
+    const canvas=renderer.domElement
+    const locate=(e:PointerEvent)=>{const bounds=canvas.getBoundingClientRect();pointerNdc.set((e.clientX-bounds.left)/bounds.width*2-1,1-(e.clientY-bounds.top)/bounds.height*2);raycaster.setFromCamera(pointerNdc,camera)}
+    canvas.addEventListener('pointerdown',e=>{if(!studio?.sphereMode||e.button!==0)return;locate(e)
+      const intersection=raycaster.intersectObjects(garden?.spheres.map(s=>s.mesh)||[])[0]
+      if(!intersection){selected=undefined;studio?.selectSphere(undefined);return}
+      const sphere=intersection.object.userData.sphereId as string;selected=sphere;studio?.selectSphere(sphere)
+      if(config.spheres.find(s=>s.id===sphere)?.locked)return
+      dragSphere=sphere;dragStart=structuredClone(config);sphereLast=e.timeStamp;plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),intersection.object.position);canvas.setPointerCapture(e.pointerId);canvas.style.cursor='grabbing'
+    })
+    canvas.addEventListener('pointermove',e=>{if(!dragSphere)return;locate(e);if(!raycaster.ray.intersectPlane(plane,hit))return
+      const sphere=config.spheres.find(s=>s.id===dragSphere);if(!sphere)return
+      const z=sphere.z,view=2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*(camera.position.z-z)
+      sphere.x=hit.x/(view*camera.aspect/2);sphere.y=hit.y/(view/2)
+      garden?.updateSphere(sphere);garden?.moveSphere(sphere.id,Math.min(5,Math.hypot(e.movementX,e.movementY)/Math.max((e.timeStamp-sphereLast)/1000,.016)/300)*sphere.interaction);sphereLast=e.timeStamp;studio?.refreshSelection()
+    })
+    const endSphere=()=>{if(dragSphere&&dragStart)studio?.record(dragStart);dragSphere=undefined;dragStart=undefined;canvas.style.cursor='';studio?.persist()}
+    canvas.addEventListener('pointerup',endSphere);canvas.addEventListener('pointercancel',endSphere)
+    studio=mountStudio(config,{change:(path)=>{if(path==='bottle.rotationY'){yaw=THREE.MathUtils.degToRad(config.bottle.rotationY);angularVelocity=0;settling=false}if(path==='bottle.rotationX'){pitch=THREE.MathUtils.degToRad(config.bottle.rotationX);verticalVelocity=0;settling=false}
+      if(path==='all'){yaw=THREE.MathUtils.degToRad(config.bottle.rotationY);pitch=THREE.MathUtils.degToRad(config.bottle.rotationX)}
+      if(path.startsWith('particles.spread')||path.startsWith('particles.depth')||path.startsWith('particles.cluster')||path==='camera.sceneDepth'||path==='spheres'||path==='all')rebuildGarden();applyScene(path)},
+      select:(id)=>{selected=id},selected:()=>selected,preview:(on)=>{document.body.classList.toggle('creator-preview',on)},viewport:(w,h)=>{document.body.classList.toggle('viewport-preview',!!w);hero.style.width=w?`${w}px`:'';hero.style.height=h?`${h}px`:'';resize();rebuildGarden()},
+      spherePosition:(id)=>garden?.sphereWorld(id),camera,canvas})
+  }
   let frameCount=0,slowFrames=0,activeTime=0
   renderer.setAnimationLoop(now=>{
     const delta=previousTime?Math.min((now-previousTime)/1000,.05):1/60;previousTime=now
     if(document.hidden||!inView)return
     activeTime+=delta
-    if(!dragging){velocity*=Math.exp(-delta*7);if(reduced)velocity=0;yaw+=velocity;root.rotation.y=yaw}
+    if(!dragging){const b=config.bottle;angularVelocity*=Math.exp(-delta*(b.damping/Math.max(b.inertia,.05)+b.friction));verticalVelocity*=Math.exp(-delta*(b.damping/Math.max(b.inertia,.05)+b.friction));if(reduced){angularVelocity=0;verticalVelocity=0}
+      yaw+=(angularVelocity+(b.autoRotate&&!reduced?b.autoSpeed:0))*delta;pitch=THREE.MathUtils.clamp(pitch+verticalVelocity*delta,-THREE.MathUtils.degToRad(b.verticalLimit),THREE.MathUtils.degToRad(b.verticalLimit));root.rotation.set(pitch,yaw,THREE.MathUtils.degToRad(b.rotationZ))
+      if(settling&&Math.abs(angularVelocity)+Math.abs(verticalVelocity)<.005){settling=false;b.rotationY=THREE.MathUtils.euclideanModulo(THREE.MathUtils.radToDeg(yaw)+180,360)-180;b.rotationX=THREE.MathUtils.radToDeg(pitch);studio?.persist();studio?.refresh()}}
     garden?.tick(activeTime,delta,reduced);stage.render(activeTime,floor,reduced)
     frameCount++
     if(quality==='auto' && frameCount>120){if(delta>.03)slowFrames++;if(frameCount===240){if(slowFrames>85&&pixelCap>1){pixelCap=1;adaptiveLow=true;resize();rebuildGarden()}frameCount=0;slowFrames=0}}
     // Inspectable diagnostics without making the production scene mutable.
     if(frameCount%60===0){hero.dataset.rotation=yaw.toFixed(3);hero.dataset.pixelRatio=String(renderer.getPixelRatio());hero.dataset.frameMs=(delta*1000).toFixed(1)}
   })
-  if(import.meta.env.DEV)Object.assign(window,{__nocturneAudit:()=>({bottle:stage.audit(),particles:garden?.count,rotation:yaw,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio()})})
+  if(import.meta.env.DEV)Object.assign(window,{__nocturneAudit:()=>({bottle:stage.audit(),particles:garden?.count,rotation:yaw,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio(),sphereCount:garden?.spheres.length,config:creator?config:undefined}),
+    __nocturneStudioAudit:()=>({garden:garden?.audit(),lights:{key:key.intensity,fill:rim.intensity,rim:moon.intensity},look:stage.lookAudit(),camera:{fov:camera.fov,position:camera.position.toArray()},bottle:{glass:stage.audit().find(m=>m.role==='glass'),liquid:stage.audit().find(m=>m.role==='liquid'),angularVelocity,yaw},brushStrokes:config.brush.strokes.length,spherePixels:garden?.spheres.map(s=>{const p=s.mesh.position.clone().project(camera);return {id:s.id,x:(p.x+1)*hero.clientWidth/2,y:(1-p.y)*hero.clientHeight/2}})})})
   window.addEventListener('pagehide',()=>{renderer.setAnimationLoop(null);observer.disconnect();resizeObserver.disconnect();garden?.dispose();stage.dispose();renderer.dispose();void audio?.close()},{once:true})
   window.addEventListener('pageshow',event=>{if(event.persisted)location.reload()})
 }
