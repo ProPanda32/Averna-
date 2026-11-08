@@ -172,7 +172,7 @@ async function start() {
     renderer.setPixelRatio(Math.min(devicePixelRatio,pixelCap,w<700?1.5:2))
     renderer.setSize(w,h,false);frame()
   }
-  function rebuildGarden(){garden?.dispose();garden=createGarden(renderer,scene,camera,stage,hero.clientWidth<700||quality==='low'||adaptiveLow);hero.dataset.particles=String(garden.count);studio?.setSphereCount(garden.spheres.length);applyConfig()}
+  function rebuildGarden(){garden?.dispose();garden=createGarden(renderer,scene,camera,stage,hero.clientWidth<700||quality==='low'||adaptiveLow);hero.dataset.particles=String(garden.count);studio?.setSphereCount(garden.spheres.map(s=>({x:s.home.x,y:s.home.y,z:s.home.z,scale:s.mesh.scale.x,rotationY:s.mesh.rotation.y})));applyConfig()}
   resize();rebuildGarden()
   const resizeObserver=new ResizeObserver(()=>{resize();window.clearTimeout(rebuildTimer);rebuildTimer=window.setTimeout(rebuildGarden,180)})
   resizeObserver.observe(hero)
@@ -243,7 +243,7 @@ async function start() {
     // Inspectable diagnostics without making the production scene mutable.
     if(frameCount%60===0){hero.dataset.rotation=yaw.toFixed(3);hero.dataset.pixelRatio=String(renderer.getPixelRatio());hero.dataset.frameMs=(delta*1000).toFixed(1)}
   })
-  if(import.meta.env.DEV)Object.assign(window,{__nocturneAudit:()=>({bottle:stage.audit(),particles:garden?.count,rotation:yaw,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio(),creator:creatorMode,config:studio?.config,spheres:garden?.spheres.map(s=>{const p=s.mesh.position.clone().project(camera);return{x:(p.x+1)*hero.clientWidth/2,y:(1-p.y)*hero.clientHeight/2}})})})
+  if(import.meta.env.DEV)Object.assign(window,{__nocturneAudit:()=>({bottle:stage.audit(),particles:garden?.count,rotation:yaw,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio(),creator:creatorMode,config:studio?.config,lights:{key:key.intensity,rim:rim.intensity,ambient:ambient.intensity},camera:{x:camera.position.x,y:camera.position.y,z:camera.position.z,fov:camera.fov},particleControls:garden?.audit(),spheres:garden?.spheres.map(s=>{const p=s.mesh.position.clone().project(camera);return{x:(p.x+1)*hero.clientWidth/2,y:(1-p.y)*hero.clientHeight/2}})})})
   window.addEventListener('pagehide',()=>{renderer.setAnimationLoop(null);observer.disconnect();resizeObserver.disconnect();garden?.dispose();stage.dispose();renderer.dispose();void audio?.close()},{once:true})
   window.addEventListener('pageshow',event=>{if(event.persisted)location.reload()})
 }

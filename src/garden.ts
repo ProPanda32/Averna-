@@ -214,6 +214,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   const drawingSize=new THREE.Vector2()
   return {
     count, root, spheres,
+    audit:()=>({repulsion:repulsion.value,radius:radius.value,returnStrength:returnStrength.value,damping:damping.value,size:material.uniforms.sizeMultiplier.value,opacity:material.uniforms.opacityMultiplier.value}),
     setControls(config:StudioConfig){
       const p=config.particles
       repulsion.value=p.repulsion;radius.value=p.radius;returnStrength.value=p.returnStrength;damping.value=p.damping;motionScale.value=p.speed;ambientSpeed.value=p.ambientSpeed

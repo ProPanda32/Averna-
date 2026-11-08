@@ -53,6 +53,7 @@ const fields:Field[]=[
 const sphereFields=[['X','x',-8,8],['Y','y',-8,8],['Z','z',-8,8],['Scale','scale',.05,4],['Rotation Y','rotationY',-6.28,6.28]] as const
 export function createCreatorStudio(host:HTMLElement,initial:StudioConfig,apply:(config:StudioConfig)=>void){
   let config=initial,selectedSphere:string|undefined
+  let sphereDefaults:Record<string,{x:number;y:number;z:number;scale:number;rotationY:number}>={}
   const history:StudioConfig[]=[],future:StudioConfig[]=[]
   const panel=document.createElement('aside');panel.className='creator-panel'
   panel.innerHTML='<div class="creator-head"><strong>NOCTURNE · CREATOR</strong><button class="creator-preview">Preview</button></div><div class="creator-actions"><button data-action="undo">Undo</button><button data-action="redo">Redo</button><button data-action="save">Save Scene</button></div><div class="creator-sections"></div>'
@@ -75,6 +76,18 @@ export function createCreatorStudio(host:HTMLElement,initial:StudioConfig,apply:
     if(!type){number=document.createElement('input');number.type='number';number.min=input.min;number.max=input.max;number.step=input.step;number.value=input.value;row.append(number)}
     const update=(source:HTMLInputElement)=>{const v=source.type==='checkbox'?source.checked:source.type==='color'?source.value:Number(source.value);change(v);if(number&&source!==number)number.value=String(v);if(source!==input){if(input.type==='checkbox')input.checked=Boolean(v);else input.value=String(v)}}
     for(const el of [input,...(number?[number]:[])]){el.addEventListener('pointerdown',snapshot);el.addEventListener('focus',snapshot);el.addEventListener('input',()=>update(el))}
+    if(id){
+      const reset=document.createElement('button');reset.type='button';reset.textContent='↺';reset.title='Reset '+label
+      reset.addEventListener('click',()=>{
+        let baseline:unknown
+        if(id.startsWith('sphere.'))baseline=selectedSphere?(sphereDefaults[selectedSphere] as unknown as Record<string,unknown>)?.[id.split('.')[1]]:undefined
+        else if(id==='brushSize')baseline=production.brushSize
+        else if(id==='brushStrength')baseline=production.brushStrength
+        else {const [group,key]=id.split('.');baseline=(production as unknown as Record<string,Record<string,unknown>>)[group]?.[key]}
+        if(baseline===undefined)return
+        snapshot();change(baseline as number|string|boolean);sync()
+      });row.append(reset)
+    }
     parent.append(row);if(id){input.dataset.field=id;controls.set(id,input)}
   }
   for(const title of ['Bottle','Particles','Spheres','Lighting','Atmosphere','Brushes','Camera','Presets']){
@@ -85,12 +98,13 @@ export function createCreatorStudio(host:HTMLElement,initial:StudioConfig,apply:
     }
     if(title==='Spheres'){
       const select=document.createElement('select');select.className='creator-sphere-select';select.innerHTML='<option value="">Select sphere in scene</option>';d.append(select)
-      select.addEventListener('change',()=>{selectedSphere=select.value||undefined;sync()})
+      select.addEventListener('change',()=>{selectedSphere=select.value||undefined;if(selectedSphere&&!config.spheres[selectedSphere]&&sphereDefaults[selectedSphere]){snapshot();config.spheres[selectedSphere]={...sphereDefaults[selectedSphere]};changed()}sync()})
       for(const [label,key,min,max] of sphereFields)control(d,label,()=>selectedSphere?config.spheres[selectedSphere]?.[key]??0:0,value=>{
         if(!selectedSphere||!config.spheres[selectedSphere])return
         (config.spheres[selectedSphere] as unknown as Record<string,unknown>)[key]=value;changed()
       },min,max,.01,undefined,'sphere.'+key)
       control(d,'Lock selected sphere',()=>selectedSphere?config.spheres[selectedSphere]?.locked??false:false,value=>{if(selectedSphere&&config.spheres[selectedSphere]){config.spheres[selectedSphere].locked=Boolean(value);changed()}},undefined,undefined,undefined,'checkbox','sphere.locked')
+      const reset=document.createElement('button');reset.textContent='Reset selected sphere';reset.onclick=()=>{if(selectedSphere&&sphereDefaults[selectedSphere]){snapshot();config.spheres[selectedSphere]={...sphereDefaults[selectedSphere]};sync();changed()}};d.append(reset)
       const note=document.createElement('p');note.textContent='Click a sphere in the scene, then drag it. Edit depth and size here.';d.append(note)
     }
     if(title==='Brushes'){
@@ -150,7 +164,7 @@ export function createCreatorStudio(host:HTMLElement,initial:StudioConfig,apply:
   return {
     get config(){return config},
     selectSphere(id:string){selectedSphere=id;sync();panel.querySelector('details:nth-child(3)')!.setAttribute('open','')},
-    setSphereCount(count:number){const select=panel.querySelector<HTMLSelectElement>('.creator-sphere-select')!;select.innerHTML='<option value="">Select sphere in scene</option>';for(let i=0;i<count;i++){const o=document.createElement('option');o.value=String(i);o.textContent='Sphere '+(i+1);select.append(o)}},
+    setSphereCount(defaults:{x:number;y:number;z:number;scale:number;rotationY:number}[]){sphereDefaults=Object.fromEntries(defaults.map((v,i)=>[String(i),v]));const count=defaults.length;const select=panel.querySelector<HTMLSelectElement>('.creator-sphere-select')!;select.innerHTML='<option value="">Select sphere in scene</option>';for(let i=0;i<count;i++){const o=document.createElement('option');o.value=String(i);o.textContent='Sphere '+(i+1);select.append(o)}},
     isBrushActive(){return config.brushTool!=='Off'&&!panel.hidden},
     isSphereEditing(){return (panel.querySelectorAll('details')[2] as HTMLDetailsElement).open&&!panel.hidden},
     brushAt(x:number,y:number){if(config.brushTool==='Off')return;snapshot();if(config.brushTool==='Eraser'){let nearest=-1,best=Infinity;config.brushes.forEach((s,i)=>{const d=Math.hypot(s.x-x,s.y-y);if(d<best){best=d;nearest=i}});if(nearest>=0&&best<config.brushSize)config.brushes.splice(nearest,1)}else config.brushes.push({x,y,size:config.brushSize,strength:config.brushStrength,kind:config.brushTool});changed()},

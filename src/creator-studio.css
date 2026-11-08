@@ -6,7 +6,7 @@
 .creator-actions{display:flex;gap:6px;margin:14px 0}
 .creator-sections details{border-top:1px solid #66553c;padding:8px 0}
 .creator-sections summary{font-family:Georgia,serif;font-size:19px;cursor:pointer}
-.creator-control{display:grid;grid-template-columns:1fr 105px 55px;align-items:center;gap:7px;margin:8px 0}
+.creator-control{display:grid;grid-template-columns:1fr 90px 55px 28px;align-items:center;gap:7px;margin:8px 0}
 .creator-control span{line-height:1.2}
 .creator-control input[type="range"]{width:100%;padding:0;accent-color:#cf9b57}
 .creator-control input[type="number"]{width:100%;box-sizing:border-box}
@@ -17,4 +17,6 @@
 .creator-return{position:fixed;right:14px;top:14px;z-index:1000;padding:10px 15px}
 .creator-brush-overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5;mix-blend-mode:screen}
 .creator-brush-spot{position:absolute;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none}
-@media(max-width:700px){.creator-panel{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:52vh}.creator-control{grid-template-columns:1fr 95px 55px}}
+@media(max-width:700px){.creator-panel{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:52vh}.creator-control{grid-template-columns:1fr 80px 55px 28px}}
+
+.creator-control button{padding:2px 4px;line-height:1.3}
