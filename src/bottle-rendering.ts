@@ -368,5 +368,25 @@ export function createBottleRendering(
     })
   }
 
-  return { configure, render, audit }
+  function tune(values: { glassTint: string; glassRoughness: number; glassIor: number; glassTransmission: number; liquidColor: string; liquidAbsorption: number; capTint: string; goldColor: string }) {
+    for (const mesh of meshes) {
+      const material = mesh.material as THREE.MeshPhysicalMaterial
+      switch (material.userData.bottleRole) {
+        case 'glass':
+          material.color.set(values.glassTint)
+          material.roughness = values.glassRoughness
+          material.ior = values.glassIor
+          material.transmission = values.glassTransmission
+          break
+        case 'liquid':
+          material.attenuationColor.set(values.liquidColor)
+          material.attenuationDistance = values.liquidAbsorption
+          break
+        case 'cap': material.color.set(values.capTint); break
+        case 'gold': material.color.set(values.goldColor); break
+      }
+    }
+  }
+
+  return { configure, render, audit, tune }
 }

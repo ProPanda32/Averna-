@@ -311,6 +311,9 @@ window.addEventListener('message', (event) => {
     window.parent.postMessage({
       type: 'nocturne:particle-config-response', requestId: event.data.requestId, config: particleConfigSnapshot(),
     }, location.origin);
+  } else if (event.data?.type === 'nocturne:sphere-drag') {
+    if (event.data.active) pointerInput.externalMove(event.data.x, event.data.y);
+    else pointerInput.externalEnd();
   }
 });
 

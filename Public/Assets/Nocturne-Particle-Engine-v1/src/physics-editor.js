@@ -3,6 +3,7 @@ export const physicsSections = [
   { name: 'Cursor', note: 'The radius follows the cursor through the field.', fields: [
     ['radius', 'Interaction radius', 0.15, 18, 0.05, 3.2, 'u'],
     ['depth', 'Radius depth', 0.5, 100, 0.5, 40, 'u'],
+    ['sphereForce', 'Sphere drag influence', 0, 5, 0.05, 1, '×'],
   ] },
   { name: 'Force', note: 'From gentle movement to dramatic scattering.', fields: [
     ['baseForce', 'Base force', 0, 100, 0.1, 0.3, ''],

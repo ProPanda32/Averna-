@@ -7,6 +7,10 @@ export type SphereSettings = {
   scaleMin: number
   scaleMax: number
   depth: number
+  hoverRotationSpeed: number
+  positions: Record<string, { x: number; y: number; z: number }>
+  scales: Record<string, number>
+  rotations: Record<string, number>
 }
 
 export const sphereDefaults: SphereSettings = {
@@ -15,6 +19,10 @@ export const sphereDefaults: SphereSettings = {
   scaleMin: 0.07,
   scaleMax: 0.3,
   depth: 5,
+  hoverRotationSpeed: 35,
+  positions: {},
+  scales: {},
+  rotations: {},
 }
 
 type Design = {
@@ -112,6 +120,11 @@ export function createSphereComposition(
   const quaternion = new THREE.Quaternion()
   const position = new THREE.Vector3()
   const instanceScale = new THREE.Vector3()
+  const currentPositions: THREE.Vector3[] = Array.from({ length: 60 }, () => new THREE.Vector3())
+  const spin = new Float32Array(60)
+  const raycaster = new THREE.Raycaster()
+  const pointer = new THREE.Vector2()
+  let hovered = -1
 
   function update(settings: SphereSettings) {
     const perDesign = new Array(designs.length).fill(0)
@@ -142,9 +155,12 @@ export function createSphereComposition(
         xNdc *= push
         yNdc *= push
       }
-      position.set(xNdc * viewWidth * 0.5, yNdc * viewHeight * 0.5, z)
+      const override = settings.positions?.[String(index)]
+      position.set(override?.x ?? xNdc * viewWidth * 0.5, override?.y ?? yNdc * viewHeight * 0.5, override?.z ?? z)
+      currentPositions[index].copy(position)
       quaternion.setFromEuler(anchor.rotation)
-      instanceScale.setScalar(scale)
+      quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), spin[index] + THREE.MathUtils.degToRad(settings.rotations?.[String(index)] ?? 0)))
+      instanceScale.setScalar(scale * (settings.scales?.[String(index)] ?? 1))
       placement.compose(position, quaternion, instanceScale)
       for (const mesh of designs[designIndex].meshes) {
         mesh.instance.setMatrixAt(designSlot, finalMatrix.multiplyMatrices(placement, mesh.localMatrix))
@@ -160,6 +176,23 @@ export function createSphereComposition(
     })
   }
 
+  function pick(clientX: number, clientY: number, rect: DOMRect) {
+    pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1)
+    raycaster.setFromCamera(pointer, camera)
+    const hit = raycaster.intersectObjects(root.children, false)[0]
+    if (!hit || hit.instanceId === undefined) return -1
+    const design = designs.findIndex((item) => item.meshes.some((mesh) => mesh.instance === hit.object))
+    return design < 0 ? -1 : hit.instanceId * designs.length + design
+  }
+
+  function setHovered(index: number) { hovered = index }
+  function tick(delta: number, settings: SphereSettings) {
+    if (hovered < 0 || hovered >= Math.round(settings.count) || settings.hoverRotationSpeed === 0) return
+    spin[hovered] += THREE.MathUtils.degToRad(settings.hoverRotationSpeed) * Math.min(delta, 0.1)
+    update(settings)
+  }
+  function positionOf(index: number) { return currentPositions[index]?.clone() }
+
   function audit() {
     return {
       designs: designs.length,
@@ -168,5 +201,5 @@ export function createSphereComposition(
     }
   }
 
-  return { root, update, audit }
+  return { root, update, audit, pick, setHovered, tick, positionOf }
 }
