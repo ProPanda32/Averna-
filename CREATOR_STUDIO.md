@@ -1,0 +1,9 @@
+# Nocturne Creator Studio
+
+Run the local site with `npm install` and `npm run dev`, then open the Vite URL with `?creator=1` (usually http://localhost:5173/?creator=1). Creator Mode is available only in development. The public site does not show the editor or load local browser edits.
+
+The Creator panel changes the real 3D scene live. Open the Spheres section to select and drag spheres, or edit their depth, size and rotation. The bottle can be dragged for rotational momentum. Particle forces run in the existing GPU simulation. Preview hides the panel.
+
+Edits are saved automatically in this browser. Save Scene saves explicitly; presets, undo/redo, JSON import, and Copy/Export are in the panel. **Set as Default / Download JSON** downloads the current complete configuration. To publish an approved composition, replace `Public/Assets/Config/creator-studio.default.json` with that exported file, commit it, then deploy through the usual review process. Browser storage alone never updates the public site. Compatible saved values take priority over new defaults in Creator Mode. On first open, the editor also migrates compatible bottle, camera and key-light values from the previous scene editor. Its original browser data remains intact; the new garden uses different sphere and particle structures, so those old layouts cannot be mapped safely.
+
+Current limitations: brush strokes are localized screen-space light, not 3D light painting; hue and saturation brushes are not implemented. The new garden's particle count remains adaptive to device quality rather than freely adjustable. Sphere add/delete/duplicate, individual material editing, responsive viewport presets, light handles, shadow and bloom controls, vertical bottle drag, and a public authenticated Creator environment remain future work. The panel exposes only controls connected to rendering or behavior.

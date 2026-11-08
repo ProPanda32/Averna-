@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { studioEnvironment } from './bottle-rendering'
+import type { StudioConfig } from './studio-config'
 
 export const WORLD = 6
 const CORE = 1, LIQUID = 2, GLASS = 3, LETTERS = 4
@@ -53,11 +54,11 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   const copy = new THREE.MeshBasicMaterial({ map: backdrop.texture, depthTest: false, depthWrite: false, toneMapped: false })
   const film = new THREE.ShaderMaterial({
     uniforms: { frame: { value: image.texture }, depthMap: { value: image.depthTexture }, size, time, floor,
-      near: { value: camera.near }, far: { value: camera.far }, focus: { value: 5 }, softness: { value: 1 } },
+      near: { value: camera.near }, far: { value: camera.far }, focus: { value: 5 }, softness: { value: 1 }, grade: { value: new THREE.Vector4(1,1,1,0) }, glowAmount: { value: 1 } },
     vertexShader: screenVertex, depthTest: false, depthWrite: false,
     fragmentShader: `
       uniform sampler2D frame,depthMap; uniform vec2 size;
-      uniform float time,floor,near,far,focus,softness; varying vec2 vUv;
+      uniform float time,floor,near,far,focus,softness,glowAmount; uniform vec4 grade; varying vec2 vUv;
       float distanceAt(vec2 p){float d=texture2D(depthMap,p).x;return near*far/(far-d*(far-near));}
       vec3 softImage(vec2 p,float r){
         vec2 t=r/size; vec3 c=texture2D(frame,p).rgb*.24;
@@ -80,7 +81,12 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
         c=mix(c,c*.45+reflected*vec3(.61,.52,.42)*exp(-below*4.),wet*.85);
         // Restrained local bloom preserves dark surround and avoids white clipping.
         vec3 halo=max(softImage(p,5.)-.9,0.)*.065+max(softImage(p,12.)-1.3,0.)*.035;
-        c+=halo;
+        c+=halo*glowAmount;
+        float luma=dot(c,vec3(.2126,.7152,.0722));
+        c=mix(vec3(luma),c,grade.y);
+        c=(c-.5)*grade.z+.5;
+        c*=grade.x;
+        c.r+=grade.w*.10; c.b-=grade.w*.08;
         c*=1.-.36*pow(length((p-.5)*vec2(1.1,.8)),1.7);
         gl_FragColor=vec4(c,1.);
         #include <tonemapping_fragment>
@@ -177,6 +183,21 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
     facets.forEach(({parent,edges})=>parent.add(edges))
   }
 
+  function setAppearance(config: StudioConfig) {
+    const b=config.bottle
+    for(const mesh of meshes){
+      const material=mesh.material as THREE.MeshPhysicalMaterial
+      const role=material.userData.role
+      if(role==='glass'){material.color.set(b.glassTint);material.roughness=b.glassRoughness;material.ior=b.glassIor;material.transmission=b.glassTransmission}
+      if(role==='cap')material.color.set(b.capTint)
+      if(role==='liquid'){material.attenuationColor.set(b.liquidTint);material.attenuationDistance=b.liquidAbsorption}
+      if(role==='gold')material.color.set(b.goldTint)
+    }
+    const a=config.atmosphere
+    film.uniforms.grade.value.set(a.brightness,a.saturation,a.contrast,a.warmth)
+    film.uniforms.glowAmount.value=a.glow
+  }
+
   function resize() {
     const next = renderer.getDrawingBufferSize(new THREE.Vector2())
     if (next.equals(size.value)) return
@@ -218,9 +239,9 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
     camera.layers.mask = mask
     renderer.autoClear = true
   }
-  return { configure, render, transmission, backdrop: backdrop.texture,
+  return { configure, render, setAppearance, transmission, backdrop: backdrop.texture,
     audit: () => meshes.map(m => { const mat=m.material as THREE.MeshPhysicalMaterial; return {
-      name:m.name,role:mat.userData.role,transmission:mat.transmission,ior:mat.ior,metalness:mat.metalness,
+      name:m.name,role:mat.userData.role,transmission:mat.transmission,ior:mat.ior,roughness:mat.roughness,metalness:mat.metalness,
     } }),
     dispose: () => { environment.dispose(); [backdrop,interior,image,liquidDepth,glassDepth].forEach(t=>t.dispose());
       [depth,sky,copy,film].forEach(m=>m.dispose()); quad.geometry.dispose() },

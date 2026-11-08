@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { WORLD } from './optical-stage'
+import type { StudioConfig } from './studio-config'
 
 export function seeded(seed: number) {
   return () => { seed |= 0; seed = seed + 0x6d2b79f5 | 0; let t = Math.imul(seed ^ seed >>> 15,1 | seed);
@@ -176,34 +177,35 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     sizes[i]=i%127===0?r(4,7):r(1.1,3.8)
   }
   const pointer={value:new THREE.Vector3(99,99,0)}, speed={value:0}, dt={value:1/60}, elapsed={value:0}, active={value:0}
+  const repulsion={value:1}, radius={value:1}, returnStrength={value:3.8}, damping={value:3.2}, motionScale={value:1}, ambientSpeed={value:1}
   const velocity=gpu.addVariable('velocity',`
-    uniform sampler2D origins;uniform vec3 pointer;uniform float dt,speed,pointerActive;
+    uniform sampler2D origins;uniform vec3 pointer;uniform float dt,speed,pointerActive,repulsion,radius,returnStrength,damping,motionScale;
     void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;
       vec3 p=texture2D(origins,uv).xyz;vec3 o=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;
-      vec3 d=p+o-pointer;d.z*=.15;float influence=exp(-dot(d,d)*8.)*pointerActive;
-      vec3 force=normalize(d+vec3(.0001))*influence*(.035+min(speed,4.)*.7);
-      v+=(force-o*3.8)*dt;v*=exp(-dt*3.2);
+      vec3 d=p+o-pointer;d.z*=.15;float influence=exp(-dot(d,d)*8./max(radius*radius,.001))*pointerActive;
+      vec3 force=normalize(d+vec3(.0001))*influence*(.035+min(speed,4.)*.7)*repulsion;
+      v+=(force-o*returnStrength)*dt*motionScale;v*=exp(-dt*damping);
       gl_FragColor=vec4(clamp(v,vec3(-.8),vec3(.8)),1.);}`,zero)
   const offsets=gpu.addVariable('offsets',`uniform float dt;void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;vec3 p=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;gl_FragColor=vec4(p+v*dt,1.);}`,zero.clone())
   gpu.setVariableDependencies(velocity,[velocity,offsets]);gpu.setVariableDependencies(offsets,[velocity,offsets])
-  Object.assign(velocity.material.uniforms,{origins:{value:origin},pointer,speed,dt,pointerActive:active})
+  Object.assign(velocity.material.uniforms,{origins:{value:origin},pointer,speed,dt,pointerActive:active,repulsion,radius,returnStrength,damping,motionScale})
   offsets.material.uniforms.dt=dt
   const gpuError=gpu.init()
   if(gpuError) console.warn('Particle simulation unavailable; using animated vertex field:',gpuError)
   const material=new THREE.ShaderMaterial({
     transparent:true,depthWrite:false,blending:THREE.NormalBlending,
-    uniforms:{offsetMap:{value:zero},simulate:{value:gpuError?0:1},time:elapsed,pixelRatio:{value:renderer.getPixelRatio()}},
+    uniforms:{offsetMap:{value:zero},simulate:{value:gpuError?0:1},time:elapsed,pixelRatio:{value:renderer.getPixelRatio()},sizeMultiplier:{value:1},opacityMultiplier:{value:.92},brightnessMultiplier:{value:1},ambientSpeed},
     vertexShader:`attribute vec2 reference;attribute float beadSize;attribute vec3 tint;
-      uniform sampler2D offsetMap;uniform float simulate,time,pixelRatio;varying vec3 vColor;varying float fog;
+      uniform sampler2D offsetMap;uniform float simulate,time,pixelRatio,sizeMultiplier,ambientSpeed;varying vec3 vColor;varying float fog;
       void main(){vec3 p=position+texture2D(offsetMap,reference).xyz*simulate;
-        p+=vec3(sin(time*.18+p.y*3.),cos(time*.13+p.x*2.),0.)*.009;
+        p+=vec3(sin(time*ambientSpeed*.18+p.y*3.),cos(time*ambientSpeed*.13+p.x*2.),0.)*.009;
         vec4 v=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*v;
-        gl_PointSize=clamp(beadSize*pixelRatio*5./-v.z,1.,14.);vColor=tint;fog=exp(-max(-v.z-6.,0.)*.08);}`,
-    fragmentShader:`varying vec3 vColor;varying float fog;void main(){vec2 p=gl_PointCoord*2.-1.;float r=dot(p,p);if(r>1.)discard;
+        gl_PointSize=clamp(beadSize*sizeMultiplier*pixelRatio*5./-v.z,1.,14.);vColor=tint;fog=exp(-max(-v.z-6.,0.)*.08);}`,
+    fragmentShader:`varying vec3 vColor;varying float fog;uniform float opacityMultiplier,brightnessMultiplier;void main(){vec2 p=gl_PointCoord*2.-1.;float r=dot(p,p);if(r>1.)discard;
       float z=sqrt(1.-r);vec3 n=vec3(p,z);float diffuse=.18+.55*max(dot(n,normalize(vec3(-.6,.8,1.))),0.);
       float spec=pow(max(dot(n,normalize(vec3(-.4,.5,1.))),0.),30.);
       vec3 c=vColor*(diffuse+.18)+mix(vColor,vec3(1.3,.93,.57),.3)*spec;
-      gl_FragColor=vec4(c*fog,(1.-smoothstep(.64,1.,r))*.92);}`,
+      gl_FragColor=vec4(c*fog*brightnessMultiplier,(1.-smoothstep(.64,1.,r))*opacityMultiplier);}`,
   })
   const geometry=new THREE.BufferGeometry()
   geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));geometry.setAttribute('reference',new THREE.BufferAttribute(refs,2))
@@ -211,7 +213,13 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   const particles=new THREE.Points(geometry,material);particles.layers.set(WORLD);particles.frustumCulled=false;particles.name='GPU botanical bead field';root.add(particles)
   const drawingSize=new THREE.Vector2()
   return {
-    count, root,
+    count, root, spheres,
+    audit:()=>({repulsion:repulsion.value,radius:radius.value,returnStrength:returnStrength.value,damping:damping.value,size:material.uniforms.sizeMultiplier.value,opacity:material.uniforms.opacityMultiplier.value}),
+    setControls(config:StudioConfig){
+      const p=config.particles
+      repulsion.value=p.repulsion;radius.value=p.radius;returnStrength.value=p.returnStrength;damping.value=p.damping;motionScale.value=p.speed;ambientSpeed.value=p.ambientSpeed
+      material.uniforms.sizeMultiplier.value=p.size;material.uniforms.opacityMultiplier.value=p.opacity;material.uniforms.brightnessMultiplier.value=p.brightness
+    },
     pointer(x:number,y:number,movement:number){pointer.value.copy(world(x,y,-.8));speed.value=movement;active.value=1},
     leave(){active.value=0},
     tick(seconds:number,delta:number,reduced:boolean){
