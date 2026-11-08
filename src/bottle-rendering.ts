@@ -22,7 +22,7 @@ const roleFor = (name: string): Role => {
 }
 
 /** Reflection-only studio: narrow luminous cards surrounded by dark negative fill. */
-function studioEnvironment(renderer: THREE.WebGLRenderer) {
+export function studioEnvironment(renderer: THREE.WebGLRenderer) {
   const studio = new THREE.Scene()
   studio.background = new THREE.Color(0.012, 0.009, 0.006)
   const cards: THREE.Mesh[] = []
@@ -36,12 +36,18 @@ function studioEnvironment(renderer: THREE.WebGLRenderer) {
     studio.add(mesh)
     cards.push(mesh)
   }
-  card([-4, 1, 0], 1.6, 5.5, new THREE.Color(9, 8.4, 7.4))
-  card([4, 0.5, -0.5], 1.4, 5, new THREE.Color(8, 7.5, 6.7))
+  card([-4, 1, 0], 0.55, 5.5, new THREE.Color(5, 4.2, 3.1))
+  card([4, 0.5, -0.5], 0.42, 5, new THREE.Color(5, 4.1, 2.9))
   card([2, 1, -3], 1.2, 4.5, new THREE.Color(4, 2.7, 1.2))
   card([-2, 0, -2], 1.4, 4.5, new THREE.Color(6, 4.6, 2.8))
   card([0, 4, 0.5], 3, 1.2, new THREE.Color(4.5, 4.1, 3.4))
   card([0, -2.5, 1], 2.3, 0.35, new THREE.Color(3.5, 2.1, 0.7))
+  card([0.4, 1.8, 4], .18, 3, new THREE.Color(.9, .7, .45))
+  card([-1.7, 1.7, 3], .2, 3.3, new THREE.Color(4.2, 3.6, 2.7))
+  card([1.4, 2.2, 3], .18, 2.7, new THREE.Color(3.7, 3.2, 2.6))
+  card([-.7, 3.8, -2], 2.2, .55, new THREE.Color(2.3, 2.7, 3))
+  card([.3, 1.2, -4], .24, 2.8, new THREE.Color(1.1, .74, .46))
+  card([-1.4, .2, -4], .28, 3.4, new THREE.Color(3.4, 2.7, 1.7))
   const generator = new THREE.PMREMGenerator(renderer)
   const target = generator.fromScene(studio, 0.025, 0.1, 100)
   generator.dispose()
@@ -368,25 +374,5 @@ export function createBottleRendering(
     })
   }
 
-  function tune(values: { glassTint: string; glassRoughness: number; glassIor: number; glassTransmission: number; liquidColor: string; liquidAbsorption: number; capTint: string; goldColor: string }) {
-    for (const mesh of meshes) {
-      const material = mesh.material as THREE.MeshPhysicalMaterial
-      switch (material.userData.bottleRole) {
-        case 'glass':
-          material.color.set(values.glassTint)
-          material.roughness = values.glassRoughness
-          material.ior = values.glassIor
-          material.transmission = values.glassTransmission
-          break
-        case 'liquid':
-          material.attenuationColor.set(values.liquidColor)
-          material.attenuationDistance = values.liquidAbsorption
-          break
-        case 'cap': material.color.set(values.capTint); break
-        case 'gold': material.color.set(values.goldColor); break
-      }
-    }
-  }
-
-  return { configure, render, audit, tune }
+  return { configure, render, audit }
 }

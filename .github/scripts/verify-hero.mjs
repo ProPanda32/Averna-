@@ -22,7 +22,7 @@ page.on('response', (response) => { if (response.status() >= 400) errors.push(`$
 
 for (let attempt = 0; attempt < 30; attempt++) {
   try {
-    const response = await page.goto('http://127.0.0.1:5173/?creator=1', { waitUntil: 'domcontentloaded' })
+    const response = await page.goto('http://127.0.0.1:5173/', { waitUntil: 'domcontentloaded' })
     if (response?.ok()) break
   } catch {
     await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -81,12 +81,6 @@ await page.mouse.move(dragX + 80, dragY)
 await page.mouse.up()
 const draggedRotation = Number(await page.locator('[data-setting="rotationY"]').inputValue())
 if (Math.abs(draggedRotation) < 20) throw new Error(`Bottle drag did not rotate on Y: ${draggedRotation}`)
-await page.locator('[data-studio-key="glassRoughness"]').evaluate((element) => {
-  element.value = '0.2'
-  element.dispatchEvent(new Event('input', { bubbles: true }))
-})
-const glass = await page.evaluate(() => window.__nocturneBottle.audit().find((item) => item.role === 'glass'))
-if (glass?.roughness !== 0.2) throw new Error('Bottle material control did not update the real mesh')
 
 // The long SwiftShader/WebGPU startup can leave Playwright's actionability
 // observer waiting even though the fixed header and its handler are mounted.
@@ -127,12 +121,9 @@ await page.route('**/particle.html', (route) => route.fulfill({
 page.on('pageerror', (error) => errors.push(error.message))
 page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
 page.on('response', (response) => { if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`) })
-await page.goto('http://127.0.0.1:5173/?creator=1', { waitUntil: 'domcontentloaded' })
+await page.goto('http://127.0.0.1:5173/', { waitUntil: 'domcontentloaded' })
 await page.locator('.load-status').waitFor({ state: 'detached', timeout: 45000 })
 await page.locator('.entry-intro').waitFor({ state: 'detached', timeout: 5000 })
-if (await page.locator('[data-studio-key="glassRoughness"]').inputValue() !== '0.2') {
-  throw new Error('Creator material edit did not persist after reopening')
-}
 if (await page.title() !== 'Nocturne') throw new Error('Nocturne branding is missing')
 await domClick(page.locator('.header-menu'))
 if (await page.locator('#menu-title').textContent() !== 'Explore Nocturne') {
@@ -156,11 +147,6 @@ if (!copied.includes('"cameraFov": 50')) throw new Error('Copy Settings failed')
 await domClick(page.locator('[data-action="reset"]'))
 if (await fov.inputValue() !== '35') throw new Error('Reset failed')
 await domClick(page.locator('.studio-close'))
-await domClick(page.locator('.header-studio'))
-await domClick(page.locator('[data-creator-action="preview"]'))
-if (await page.locator('.studio-panel').isVisible()) throw new Error('Preview Mode left editor visible')
-await domClick(page.locator('.header-studio'))
-if (!(await page.locator('.studio-panel').isVisible())) throw new Error('Exit Preview did not restore editor')
 
 if (errors.length) throw new Error('Browser errors: ' + errors.join('; '))
 await mkdir('.github/preview', { recursive: true })
@@ -176,9 +162,4 @@ for (const [name, size] of [
   }
 }
 console.log('Hero verified: bottle, video, WebGPU particles, editor, reset and clipboard.')
-await page.goto('http://127.0.0.1:5173/', { waitUntil: 'domcontentloaded' })
-await page.locator('.site-hero').waitFor({ state: 'visible' })
-if (await page.locator('.studio-panel').count() !== 0 || await page.locator('.header-studio').isVisible()) {
-  throw new Error('Visitor mode exposed Creator Studio controls')
-}
 await browser.close()

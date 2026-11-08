@@ -7,22 +7,18 @@ export type SphereSettings = {
   scaleMin: number
   scaleMax: number
   depth: number
-  hoverRotationSpeed: number
-  positions: Record<string, { x: number; y: number; z: number }>
-  scales: Record<string, number>
-  rotations: Record<string, number>
+  hoverSpeed: number
+  positions: Record<string, { x: number; y: number; depth: number }>
 }
 
 export const sphereDefaults: SphereSettings = {
-  count: 42,
+  count: 8,
   spread: 1,
-  scaleMin: 0.07,
-  scaleMax: 0.3,
+  scaleMin: 0.025,
+  scaleMax: 0.07,
   depth: 5,
-  hoverRotationSpeed: 35,
+  hoverSpeed: 90,
   positions: {},
-  scales: {},
-  rotations: {},
 }
 
 type Design = {
@@ -120,10 +116,7 @@ export function createSphereComposition(
   const quaternion = new THREE.Quaternion()
   const position = new THREE.Vector3()
   const instanceScale = new THREE.Vector3()
-  const currentPositions: THREE.Vector3[] = Array.from({ length: 60 }, () => new THREE.Vector3())
-  const spin = new Float32Array(60)
-  const raycaster = new THREE.Raycaster()
-  const pointer = new THREE.Vector2()
+  const centers: THREE.Vector2[] = []
   let hovered = -1
 
   function update(settings: SphereSettings) {
@@ -136,31 +129,31 @@ export function createSphereComposition(
       const anchor = ordered[index]
       const designIndex = index % designs.length
       const designSlot = perDesign[designIndex]++
-      const z = THREE.MathUtils.lerp(-settings.depth * 0.62, settings.depth * 0.36, anchor.depth)
+      const saved = settings.positions[String(index)]
+      const sphereDepth = saved?.depth ?? anchor.depth
+      const z = THREE.MathUtils.lerp(-settings.depth * 0.62, settings.depth * 0.36, sphereDepth)
       const distance = Math.max(camera.position.z - z, 0.5)
       const viewHeight = 2 * Math.tan(verticalFov / 2) * distance
       const viewWidth = viewHeight * aspect
-      const depthScale = THREE.MathUtils.lerp(0.72, 1.14, anchor.depth)
+      const depthScale = THREE.MathUtils.lerp(0.72, 1.14, sphereDepth)
       const edgeScale = THREE.MathUtils.lerp(0.74, 1, THREE.MathUtils.clamp(Math.abs(anchor.x) * 1.4, 0, 1))
       const scale = THREE.MathUtils.lerp(settings.scaleMin, settings.scaleMax, anchor.scale) * depthScale * edgeScale
       const projectedRadiusX = scale / viewWidth
       const projectedRadiusY = scale / viewHeight
-      let xNdc = anchor.x * settings.spread
-      let yNdc = anchor.y * settings.spread
+      let xNdc = saved?.x ?? anchor.x * settings.spread
+      let yNdc = saved?.y ?? anchor.y * settings.spread
       const exclusionX = 0.46 + projectedRadiusX * 1.6
       const exclusionY = 0.67 + projectedRadiusY * 1.6
       const exclusion = (xNdc / exclusionX) ** 2 + (yNdc / exclusionY) ** 2
-      if (exclusion < 1) {
+      if (!saved && exclusion < 1) {
         const push = 1 / Math.sqrt(Math.max(exclusion, 0.001))
         xNdc *= push
         yNdc *= push
       }
-      const override = settings.positions?.[String(index)]
-      position.set(override?.x ?? xNdc * viewWidth * 0.5, override?.y ?? yNdc * viewHeight * 0.5, override?.z ?? z)
-      currentPositions[index].copy(position)
+      centers[index] = new THREE.Vector2(xNdc, yNdc)
+      position.set(xNdc * viewWidth * 0.5, yNdc * viewHeight * 0.5, z)
       quaternion.setFromEuler(anchor.rotation)
-      quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), spin[index] + THREE.MathUtils.degToRad(settings.rotations?.[String(index)] ?? 0)))
-      instanceScale.setScalar(scale * (settings.scales?.[String(index)] ?? 1))
+      instanceScale.setScalar(scale)
       placement.compose(position, quaternion, instanceScale)
       for (const mesh of designs[designIndex].meshes) {
         mesh.instance.setMatrixAt(designSlot, finalMatrix.multiplyMatrices(placement, mesh.localMatrix))
@@ -174,24 +167,33 @@ export function createSphereComposition(
         mesh.instance.computeBoundingSphere()
       }
     })
+    centers.length = ordered.length
   }
 
-  function pick(clientX: number, clientY: number, rect: DOMRect) {
-    pointer.set((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1)
-    raycaster.setFromCamera(pointer, camera)
-    const hit = raycaster.intersectObjects(root.children, false)[0]
-    if (!hit || hit.instanceId === undefined) return -1
-    const design = designs.findIndex((item) => item.meshes.some((mesh) => mesh.instance === hit.object))
-    return design < 0 ? -1 : hit.instanceId * designs.length + design
+  function point(index: number) {
+    const saved = settingsCache?.positions[String(index)]
+    const anchor = anchors[index]
+    return { x: saved?.x ?? centers[index]?.x ?? anchor.x, y: saved?.y ?? centers[index]?.y ?? anchor.y,
+      depth: saved?.depth ?? anchor.depth }
   }
-
-  function setHovered(index: number) { hovered = index }
-  function tick(delta: number, settings: SphereSettings) {
-    if (hovered < 0 || hovered >= Math.round(settings.count) || settings.hoverRotationSpeed === 0) return
-    spin[hovered] += THREE.MathUtils.degToRad(settings.hoverRotationSpeed) * Math.min(delta, 0.1)
-    update(settings)
+  let settingsCache: SphereSettings | null = null
+  const render = (settings: SphereSettings) => { settingsCache = settings; update(settings) }
+  function hitTest(x: number, y: number, width: number, height: number) {
+    let found = -1
+    let closest = 22 * 22
+    centers.forEach((center, index) => {
+      const dx = (x - (center.x + 1) * width / 2)
+      const dy = (y - (1 - center.y) * height / 2)
+      const distance = dx * dx + dy * dy
+      if (distance < closest) { closest = distance; found = index }
+    })
+    return found
   }
-  function positionOf(index: number) { return currentPositions[index]?.clone() }
+  function tick(deltaSeconds: number) {
+    if (hovered < 0 || !settingsCache?.hoverSpeed) return
+    anchors[hovered].rotation.y += THREE.MathUtils.degToRad(settingsCache.hoverSpeed) * deltaSeconds
+    update(settingsCache)
+  }
 
   function audit() {
     return {
@@ -201,5 +203,6 @@ export function createSphereComposition(
     }
   }
 
-  return { root, update, audit, pick, setHovered, tick, positionOf }
+  return { root, update: render, audit, point, hitTest, tick, setHovered: (index: number) => { hovered = index },
+    centers: () => centers }
 }

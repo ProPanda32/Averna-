@@ -1,12 +1,14 @@
 name: Hero preview check
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
@@ -24,31 +26,20 @@ jobs:
       - name: Install browser
         run: |
           npm install --no-save --no-audit --no-fund playwright@1.56.1
-          npx playwright install --with-deps chrome
+          npx playwright install --with-deps chromium
       - name: Verify hero in browser
         run: |
           npm run dev -- --host 127.0.0.1 > /tmp/nocturne-vite.log 2>&1 &
-          node .github/scripts/verify-hero.mjs
-      - name: Publish preview screenshots
-        run: |
-          mkdir -p previews
-          if [ -f .github/preview/desktop.png ] && [ -f .github/preview/mobile.png ]; then
-            cp .github/preview/desktop.png previews/hero-desktop.png
-            cp .github/preview/mobile.png previews/hero-mobile.png
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add previews/hero-desktop.png previews/hero-mobile.png
-            if ! git diff --cached --quiet; then
-              git commit -m 'Update hero preview screenshots'
-              git push origin HEAD:main
-            fi
-          else
-            echo 'Screenshots unavailable in software WebGPU; browser checks completed.'
-          fi
+          node .github/scripts/verify-reconstruction.mjs
       - name: Save preview screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nocturne-hero-preview
+          name: nocturne-hero-review
           path: .github/preview/
           if-no-files-found: ignore
+      - name: Save reviewable production build
+        uses: actions/upload-artifact@v4
+        with:
+          name: nocturne-production-preview
+          path: dist/

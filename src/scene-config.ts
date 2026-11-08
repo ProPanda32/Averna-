@@ -20,7 +20,6 @@ export type SceneConfig = {
   spheres: JsonObject
   ripples: JsonObject
   particles: ParticleSceneConfig
-  studio: JsonObject
 }
 
 const isObject = (value: unknown): value is JsonObject => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -77,7 +76,6 @@ export function migrateSceneConfig(raw: unknown, defaults: SceneConfig): SceneCo
       physics: compatibleValue(defaultsParticles.physics, sourceParticles.physics) as JsonObject,
       appearance: compatibleValue(defaultsParticles.appearance, sourceParticles.appearance) as JsonObject,
     },
-    studio: compatibleValue(defaults.studio, source.studio) as JsonObject,
   }
 }
 

@@ -59,15 +59,6 @@ export function createPointerInput(canvas, camera, settings) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) clear(); });
   return {
     uniforms: { start, end, velocity, active, cameraZ },
-    externalMove(x, y) {
-      const now = performance.now();
-      previous.copy(point);
-      project({ clientX: x, clientY: y });
-      if (initialized) rawVelocity.copy(point).sub(previous).divideScalar(Math.max((now - lastEvent) / 1000, 0.008)).multiplyScalar(settings.sphereForce ?? 1);
-      else { start.value.copy(point); end.value.copy(point); }
-      initialized = true; inside = true; lastEvent = now; lastMotion = now;
-    },
-    externalEnd: clear,
     setSuspended(value) { suspended = value; clear(); },
     update(dt, now) {
       if (suspended) { active.value = 0; circle.hidden = true; return 0; }

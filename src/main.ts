@@ -37,17 +37,6 @@ const defaults: Settings = {
   environmentIntensity: 1,
   keyLightIntensity: 1.8,
 }
-const creatorMode = import.meta.env.DEV && new URLSearchParams(location.search).get('creator') === '1'
-document.documentElement.classList.toggle('creator-mode', creatorMode)
-const studioDefaults = {
-  glassTint: '#ffffff', glassRoughness: 0.026, glassIor: 1.52, glassTransmission: 1,
-  liquidColor: '#cb9b44', liquidAbsorption: 0.4, capTint: '#ffffff', goldColor: '#eeb95d',
-  fillIntensity: 0.45, fillColor: '#ffe1b8', keyColor: '#ffe9ce', rimIntensity: 0,
-  exposure: 1, backgroundBrightness: 1, backgroundSaturation: 1, backgroundContrast: 1,
-  autoRotation: true, autoRotationSpeed: 4, dragSensitivity: 0.4, inertia: 0.9,
-  damping: 2, maxRotationSpeed: 180, cameraX: 0, cameraY: 0,
-}
-type StudioKey = keyof typeof studioDefaults
 
 const builtInConfig: SceneConfig = {
   format: SCENE_CONFIG_FORMAT,
@@ -57,7 +46,6 @@ const builtInConfig: SceneConfig = {
   spheres: { ...sphereDefaults },
   ripples: { ...rippleDefaults },
   particles: { composition: {}, physics: {}, appearance: {} },
-  studio: { ...studioDefaults },
 }
 const productionConfigUrl = new URL('../Public/Assets/Config/scene-config.default.json', import.meta.url).href
 let productionConfig = builtInConfig
@@ -65,11 +53,26 @@ try {
   const response = await fetch(productionConfigUrl)
   if (response.ok) productionConfig = migrateSceneConfig(await response.json() as unknown, builtInConfig)
 } catch { /* Built-in values remain available if the production data file cannot load. */ }
-const storedConfig = creatorMode ? parseSceneConfig(localStorage.getItem(ACTIVE_SCENE_KEY))
+const storedConfig = parseSceneConfig(localStorage.getItem(ACTIVE_SCENE_KEY))
   ?? parseSceneConfig(localStorage.getItem(DEFAULT_SCENE_KEY))
-  : null
 let sceneConfig = migrateSceneConfig(storedConfig ?? productionConfig, productionConfig)
-const studioSettings = { ...studioDefaults, ...sceneConfig.studio } as typeof studioDefaults
+// Carry untouched browser auto-saves forward to the corrected art direction.
+// Values deliberately edited in Scene controls retain their local choices.
+if (storedConfig) {
+  if (sceneConfig.spheres.count === 42 && sceneConfig.spheres.scaleMin === 0.07 && sceneConfig.spheres.scaleMax === 0.3) {
+    Object.assign(sceneConfig.spheres, { count: 8, scaleMin: 0.025, scaleMax: 0.07 })
+  }
+  const composition = sceneConfig.particles.composition as JsonObject
+  const wings = composition.upper as Record<string, JsonObject> | undefined
+  const lowerWings = composition.lower as Record<string, JsonObject> | undefined
+  for (const [group, density] of [[wings, 0.9], [lowerWings, 1.8]] as const) {
+    for (const side of ['left', 'right']) {
+      if (group?.[side]?.density === 1) group[side].density = density
+    }
+  }
+  const structure = composition.structure as JsonObject | undefined
+  if (structure?.rootWidth === 1) structure.rootWidth = 1.35
+}
 const legacyCamera = parseSceneConfig(localStorage.getItem('particleCameraView'))
 if (legacyCamera && typeof legacyCamera === 'object') {
   const camera = legacyCamera as { fov?: unknown; distance?: unknown }
@@ -113,7 +116,7 @@ app.innerHTML = `
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg><span>Menu</span>
     </button>
     <a class="header-logo" href="#top" aria-label="Nocturne home">NOCTURNE</a>
-    <button class="header-studio" type="button" aria-controls="studio-panel" aria-expanded="false" ${creatorMode ? '' : 'hidden'}>Creator Studio</button>
+    <button class="header-studio" type="button" aria-controls="studio-panel" aria-expanded="false">Scene controls</button>
   </header>
   <main>
     <section class="site-hero" id="top" aria-label="Nocturne perfume bottle experience">
@@ -121,6 +124,7 @@ app.innerHTML = `
       <div class="ripple-layer" aria-hidden="true"><video class="hero-video" autoplay muted loop playsinline preload="auto"></video></div>
       <iframe id="particle-layer" class="particle-layer" src="./particle.html" title="Nocturne particle field" aria-hidden="true" tabindex="-1"></iframe>
       <div class="scene-layer" aria-label="Interactive 3D Nocturne perfume bottle"></div>
+      <div class="sphere-arrange-layer" aria-label="Drag sphere handles to arrange them" hidden></div>
       <div class="bottle-drag-target" role="button" tabindex="0" aria-label="Drag horizontally or use arrow keys to rotate the perfume bottle" hidden></div>
       <p class="load-status" role="status">Loading bottle…</p>
       <div class="hero-copy">
@@ -160,16 +164,14 @@ app.innerHTML = `
         <a href="#top">The experience</a>
         <a href="#fragrance">The fragrance</a>
         <a href="#story">The world of Nocturne</a>
-        <button type="button" class="menu-scene-controls" ${creatorMode ? '' : 'hidden'}>Creator Studio</button>
+        <button type="button" class="menu-scene-controls">Scene controls</button>
       </nav>
       <p class="menu-signoff">NOCTURNE · EAU DE PARFUM</p>
     </div>
   </dialog>
-  <aside class="studio-panel" id="studio-panel" aria-label="Creator Studio" hidden>
+  <aside class="studio-panel" id="studio-panel" aria-label="Scene controls" hidden>
     <div class="studio-panel-head"><span>Scene controls</span><button class="studio-close" type="button" aria-label="Close scene controls">×</button></div>
-    <div class="creator-actions"><button type="button" data-creator-action="preview">Preview Mode</button><button type="button" data-creator-action="undo">Undo</button><button type="button" data-creator-action="redo">Redo</button></div>
-    <div class="creator-categories"><a href="#creator-bottle">Bottle</a><a href="#creator-particles">Particles</a><a href="#creator-spheres">Spheres</a><a href="#creator-lighting">Lighting</a><a href="#creator-atmosphere">Atmosphere</a><a href="#creator-brushes">Brushes</a><a href="#creator-camera">Camera</a><a href="#creator-presets">Presets</a></div>
-    <section class="scene-config-tools" id="creator-presets" aria-labelledby="scene-config-title">
+    <section class="scene-config-tools" aria-labelledby="scene-config-title">
       <div><h2 id="scene-config-title">Scene Config</h2><p>Art direction is saved locally across refreshes and deployments.</p></div>
       <div class="scene-config-actions">
         <button type="button" data-scene-action="save">Save Scene</button>
@@ -177,15 +179,11 @@ app.innerHTML = `
         <button type="button" data-scene-action="default">Set as Default</button>
         <button type="button" data-scene-action="export">Copy / Export Config</button>
         <button type="button" data-scene-action="import">Import Config</button>
-        <button type="button" data-scene-action="preset-save">Save As Preset</button>
-        <button type="button" data-scene-action="preset-load">Load Preset</button>
-        <button type="button" data-scene-action="preset-duplicate">Duplicate Preset</button>
-        <button type="button" data-scene-action="reset-all">Reset Entire Scene</button>
         <input type="file" data-scene-import accept="application/json,.json" hidden />
       </div>
       <p class="scene-config-status" role="status" aria-live="polite">Current scene auto-saved.</p>
     </section>
-    <div id="creator-particles"><button class="particle-settings-toggle" type="button" aria-controls="particle-layer" aria-expanded="false">Particle Settings</button></div>
+    <button class="particle-settings-toggle" type="button" aria-controls="particle-layer" aria-expanded="false">Particle Settings</button>
     <details class="ripple-editor">
       <summary>Floor Ripple Settings <span>Temporary controls</span></summary>
       <div class="editor-body">
@@ -194,21 +192,26 @@ app.innerHTML = `
         <p class="ripple-editor-message" role="status" aria-live="polite"></p>
       </div>
     </details>
-    <details class="sphere-editor" id="creator-spheres">
-      <summary>Sphere Settings <span>Drag spheres to position them</span></summary>
+    <details class="sphere-editor">
+      <summary>Sphere Settings <span>Temporary controls</span></summary>
       <div class="editor-body">
         <div class="sphere-control-list"></div>
-        <p class="sphere-selection">Select a sphere in the scene to edit its position.</p>
-        <div class="sphere-position-list" hidden></div>
+        <div class="sphere-position-editor">
+          <button type="button" class="sphere-arrange-toggle" aria-pressed="false">Arrange spheres on canvas</button>
+          <label>Selected sphere <select class="sphere-selected"></select></label>
+          <label>Horizontal <input type="range" data-sphere-position="x" min="-1.15" max="1.15" step="0.01" /></label>
+          <label>Vertical <input type="range" data-sphere-position="y" min="-1.15" max="1.15" step="0.01" /></label>
+          <label>Depth <input type="range" data-sphere-position="depth" min="0" max="1" step="0.01" /></label>
+          <button type="button" class="sphere-reset-selected">Reset selected position</button>
+        </div>
         <div class="editor-actions"><button type="button" data-sphere-action="reset">Reset Spheres</button></div>
         <p class="sphere-editor-message" role="status" aria-live="polite"></p>
       </div>
     </details>
-    <details class="bottle-editor" id="creator-bottle">
+    <details class="bottle-editor">
       <summary>Bottle Editor <span>Temporary controls</span></summary>
       <div class="editor-body">
         <div class="control-list"></div>
-        <div class="creator-control-list" data-creator-group="bottle"></div>
         <div class="editor-actions">
           <button type="button" data-action="reset">Reset</button>
           <button type="button" data-action="copy">Copy Settings</button>
@@ -216,10 +219,6 @@ app.innerHTML = `
         <p class="editor-message" role="status" aria-live="polite"></p>
       </div>
     </details>
-    <details class="creator-editor" id="creator-lighting"><summary>Lighting</summary><div class="creator-control-list" data-creator-group="lighting"></div></details>
-    <details class="creator-editor" id="creator-atmosphere"><summary>Atmosphere</summary><div class="creator-control-list" data-creator-group="atmosphere"></div></details>
-    <details class="creator-editor" id="creator-camera"><summary>Camera</summary><div class="creator-control-list" data-creator-group="camera"></div></details>
-    <details class="creator-editor" id="creator-brushes"><summary>Brushes</summary><p class="creator-note">Localized painting is not available in this build.</p></details>
   </aside>
 `
 
@@ -288,6 +287,11 @@ window.addEventListener('message', (event) => {
   } else if (event.data?.type === 'nocturne:particle-config-change') {
     sceneConfig.particles = event.data.config as ParticleSceneConfig
     scheduleAutoSaveScene()
+  } else if (event.data?.type === 'nocturne:sphere-pointer') {
+    const { x, y } = event.data
+    const index = Number.isFinite(x) && Number.isFinite(y)
+      ? sphereComposition?.hitTest(x, y, sceneLayer.clientWidth, sceneLayer.clientHeight) ?? -1 : -1
+    sphereComposition?.setHovered(index)
   } else if (event.data?.type === 'nocturne:particle-config-response') {
     const resolve = particleRequests.get(String(event.data.requestId))
     if (resolve) {
@@ -354,18 +358,14 @@ function applyRippleSettings() {
 }
 applyRippleSettings()
 
-const sphereSettings: SphereSettings = { ...sphereDefaults, ...sceneConfig.spheres } as SphereSettings
-sphereSettings.positions = { ...sphereSettings.positions }
-sphereSettings.scales = { ...sphereSettings.scales }
-sphereSettings.rotations = { ...sphereSettings.rotations }
-type SphereNumberKey = Exclude<keyof SphereSettings, 'positions' | 'scales' | 'rotations'>
-const sphereControls: { key: SphereNumberKey; label: string; min: number; max: number; step: number }[] = [
-  { key: 'count', label: 'Overall count', min: 30, max: 60, step: 1 },
+const sphereSettings: SphereSettings = { ...structuredClone(sphereDefaults), ...sceneConfig.spheres } as SphereSettings
+const sphereControls: { key: Exclude<keyof SphereSettings, 'positions'>; label: string; min: number; max: number; step: number }[] = [
+  { key: 'count', label: 'Overall count', min: 0, max: 60, step: 1 },
   { key: 'spread', label: 'Spread', min: 0.65, max: 1.7, step: 0.01 },
-  { key: 'scaleMin', label: 'Minimum scale', min: 0.03, max: 0.5, step: 0.01 },
-  { key: 'scaleMax', label: 'Maximum scale', min: 0.2, max: 1.1, step: 0.01 },
+  { key: 'scaleMin', label: 'Minimum scale', min: 0.01, max: 0.5, step: 0.005 },
+  { key: 'scaleMax', label: 'Maximum scale', min: 0.02, max: 1.1, step: 0.005 },
   { key: 'depth', label: 'Depth', min: 1, max: 9, step: 0.1 },
-  { key: 'hoverRotationSpeed', label: 'Hover rotation speed (°/s)', min: 0, max: 360, step: 1 },
+  { key: 'hoverSpeed', label: 'Hover rotation speed (degrees/second)', min: 0, max: 360, step: 5 },
 ]
 sphereControlList.innerHTML = sphereControls.map(({ key, label, min, max, step }) => `
   <label class="control">
@@ -375,19 +375,6 @@ sphereControlList.innerHTML = sphereControls.map(({ key, label, min, max, step }
 `).join('')
 
 let autoSaveTimer: number | undefined
-const history: SceneConfig[] = []
-let historyIndex = -1
-let restoringHistory = false
-
-function rememberScene() {
-  if (restoringHistory || !creatorMode) return
-  const snapshot = currentSceneConfig()
-  if (historyIndex >= 0 && JSON.stringify(history[historyIndex]) === JSON.stringify(snapshot)) return
-  history.splice(historyIndex + 1)
-  history.push(snapshot)
-  if (history.length > 50) history.shift()
-  historyIndex = history.length - 1
-}
 
 function currentSceneConfig(): SceneConfig {
   return stampSceneConfig({
@@ -395,17 +382,14 @@ function currentSceneConfig(): SceneConfig {
     bottle: { ...settings } as unknown as JsonObject,
     spheres: { ...sphereSettings } as unknown as JsonObject,
     ripples: { ...rippleSettings } as unknown as JsonObject,
-    studio: { ...studioSettings } as unknown as JsonObject,
   })
 }
 
 function scheduleAutoSaveScene() {
-  if (!creatorMode) return
   window.clearTimeout(autoSaveTimer)
   autoSaveTimer = window.setTimeout(() => {
     sceneConfig = currentSceneConfig()
     storeSceneConfig(ACTIVE_SCENE_KEY, sceneConfig)
-    rememberScene()
     sceneConfigStatus.textContent = 'Current scene auto-saved.'
   }, 120)
 }
@@ -435,74 +419,18 @@ async function captureSceneConfig() {
 
 function applySceneConfig(raw: unknown, message: string) {
   sceneConfig = migrateSceneConfig(raw, productionConfig)
-  Object.assign(studioSettings, sceneConfig.studio)
   Object.assign(settings, sceneConfig.bottle)
   Object.assign(sphereSettings, sceneConfig.spheres)
   Object.assign(rippleSettings, sceneConfig.ripples)
   applySettings()
   applySphereSettings()
   applyRippleSettings()
-  applyStudioSettings()
   if (particleReady) {
     particleFrame.contentWindow?.postMessage({ type: 'nocturne:scene-config-apply', config: sceneConfig.particles }, location.origin)
   }
   storeSceneConfig(ACTIVE_SCENE_KEY, sceneConfig)
-  rememberScene()
   sceneConfigStatus.textContent = message
 }
-
-const presetKey = 'nocturne.creator-presets'
-function readPresets(): Record<string, SceneConfig> {
-  const raw = parseSceneConfig(localStorage.getItem(presetKey))
-  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, SceneConfig> : {}
-}
-function savePresets(presets: Record<string, SceneConfig>) { localStorage.setItem(presetKey, JSON.stringify(presets)) }
-app.querySelector<HTMLButtonElement>('[data-creator-action="preview"]')!.addEventListener('click', () => {
-  setStudioOpen(false)
-  document.documentElement.classList.add('creator-preview')
-  studioToggle.textContent = 'Exit Preview'
-})
-studioToggle.addEventListener('click', () => {
-  if (document.documentElement.classList.contains('creator-preview')) {
-    document.documentElement.classList.remove('creator-preview')
-    studioToggle.textContent = 'Creator Studio'
-    setStudioOpen(true)
-  }
-})
-for (const [action, step] of [['undo', -1], ['redo', 1]] as const) {
-  app.querySelector<HTMLButtonElement>(`[data-creator-action="${action}"]`)!.addEventListener('click', () => {
-    const next = historyIndex + step
-    if (next < 0 || next >= history.length) return
-    historyIndex = next
-    restoringHistory = true
-    applySceneConfig(history[next], `${action === 'undo' ? 'Undid' : 'Redid'} scene edit.`)
-    restoringHistory = false
-  })
-}
-app.querySelector<HTMLButtonElement>('[data-scene-action="preset-save"]')!.addEventListener('click', async () => {
-  const name = prompt('Name this scene preset:')?.trim()
-  if (!name) return
-  const presets = readPresets()
-  presets[name] = await captureSceneConfig()
-  savePresets(presets)
-  sceneConfigStatus.textContent = `Preset “${name}” saved locally.`
-})
-app.querySelector<HTMLButtonElement>('[data-scene-action="preset-load"]')!.addEventListener('click', () => {
-  const presets = readPresets()
-  const name = prompt(`Load preset:\n${Object.keys(presets).join('\n')}`)?.trim()
-  if (name && presets[name]) applySceneConfig(presets[name], `Preset “${name}” loaded.`)
-})
-app.querySelector<HTMLButtonElement>('[data-scene-action="preset-duplicate"]')!.addEventListener('click', () => {
-  const presets = readPresets()
-  const source = prompt(`Duplicate which preset?\n${Object.keys(presets).join('\n')}`)?.trim()
-  if (!source || !presets[source]) return
-  const target = prompt('New preset name:')?.trim()
-  if (!target) return
-  presets[target] = structuredClone(presets[source])
-  savePresets(presets)
-  sceneConfigStatus.textContent = `Preset “${target}” created.`
-})
-app.querySelector<HTMLButtonElement>('[data-scene-action="reset-all"]')!.addEventListener('click', () => applySceneConfig(productionConfig, 'Scene reset to production defaults.'))
 
 function downloadSceneConfig(config: SceneConfig, filename: string) {
   const blob = new Blob([`${JSON.stringify(config, null, 2)}\n`], { type: 'application/json' })
@@ -539,70 +467,6 @@ scene.add(keyLight)
 const fillLight = new THREE.DirectionalLight(0xffe1b8, 0.45)
 fillLight.position.set(4, 2, -3)
 scene.add(fillLight)
-const rimLight = new THREE.DirectionalLight(0xffd4a3, 0)
-rimLight.position.set(0, 3, -5)
-scene.add(rimLight)
-const studioFields: { group: string; key: StudioKey; label: string; min?: number; max?: number; step?: number }[] = [
-  { group: 'bottle', key: 'glassTint', label: 'Glass tint' },
-  { group: 'bottle', key: 'glassRoughness', label: 'Glass roughness', min: 0, max: 0.5, step: 0.001 },
-  { group: 'bottle', key: 'glassIor', label: 'Glass refraction index', min: 1, max: 2.2, step: 0.01 },
-  { group: 'bottle', key: 'glassTransmission', label: 'Glass transmission', min: 0, max: 1, step: 0.01 },
-  { group: 'bottle', key: 'liquidColor', label: 'Amber liquid color' },
-  { group: 'bottle', key: 'liquidAbsorption', label: 'Liquid absorption distance', min: 0.05, max: 3, step: 0.01 },
-  { group: 'bottle', key: 'capTint', label: 'Crystal cap tint' },
-  { group: 'bottle', key: 'goldColor', label: 'Gold color' },
-  { group: 'bottle', key: 'autoRotation', label: 'Auto rotation' },
-  { group: 'bottle', key: 'autoRotationSpeed', label: 'Auto rotation speed', min: 0, max: 40, step: 0.1 },
-  { group: 'bottle', key: 'dragSensitivity', label: 'Drag sensitivity', min: 0.05, max: 2, step: 0.01 },
-  { group: 'bottle', key: 'inertia', label: 'Inertia', min: 0, max: 1, step: 0.01 },
-  { group: 'bottle', key: 'damping', label: 'Damping', min: 0.1, max: 12, step: 0.1 },
-  { group: 'bottle', key: 'maxRotationSpeed', label: 'Maximum spin speed', min: 10, max: 720, step: 1 },
-  { group: 'lighting', key: 'keyColor', label: 'Key light color' },
-  { group: 'lighting', key: 'fillColor', label: 'Fill light color' },
-  { group: 'lighting', key: 'fillIntensity', label: 'Fill light intensity', min: 0, max: 5, step: 0.01 },
-  { group: 'lighting', key: 'rimIntensity', label: 'Rim light intensity', min: 0, max: 5, step: 0.01 },
-  { group: 'lighting', key: 'exposure', label: 'Exposure', min: 0.3, max: 2.5, step: 0.01 },
-  { group: 'atmosphere', key: 'backgroundBrightness', label: 'Background brightness', min: 0.3, max: 2, step: 0.01 },
-  { group: 'atmosphere', key: 'backgroundSaturation', label: 'Background saturation', min: 0, max: 2, step: 0.01 },
-  { group: 'atmosphere', key: 'backgroundContrast', label: 'Background contrast', min: 0.5, max: 2, step: 0.01 },
-  { group: 'camera', key: 'cameraX', label: 'Camera X', min: -2, max: 2, step: 0.01 },
-  { group: 'camera', key: 'cameraY', label: 'Camera Y', min: -2, max: 2, step: 0.01 },
-]
-for (const field of studioFields) {
-  const value = studioSettings[field.key]
-  const type = typeof value === 'boolean' ? 'checkbox' : typeof value === 'string' ? 'color' : 'range'
-  const list = app.querySelector<HTMLElement>(`[data-creator-group="${field.group}"]`)!
-  list.insertAdjacentHTML('beforeend', `<label class="creator-control"><span>${field.label}</span><input type="${type}" data-studio-key="${field.key}" ${type === 'checkbox' ? (value ? 'checked' : '') : `value="${value}"`} ${field.min === undefined ? '' : `min="${field.min}" max="${field.max}" step="${field.step}"`} /><output>${type === 'range' ? value : ''}</output></label>`)
-}
-function applyStudioSettings() {
-  bottleRendering.tune(studioSettings)
-  keyLight.color.set(studioSettings.keyColor)
-  fillLight.color.set(studioSettings.fillColor)
-  fillLight.intensity = studioSettings.fillIntensity
-  rimLight.intensity = studioSettings.rimIntensity
-  renderer.toneMappingExposure = studioSettings.exposure
-  app!.querySelector<HTMLImageElement>('.hero-cavern')!.style.filter = `brightness(${studioSettings.backgroundBrightness}) saturate(${studioSettings.backgroundSaturation}) contrast(${studioSettings.backgroundContrast})`
-  camera.position.x = studioSettings.cameraX
-  camera.position.y = studioSettings.cameraY
-  camera.lookAt(studioSettings.cameraX, studioSettings.cameraY, 0)
-  camera.updateProjectionMatrix()
-  if (!creatorMode) return
-  for (const field of studioFields) {
-    const input = app!.querySelector<HTMLInputElement>(`[data-studio-key="${field.key}"]`)!
-    const value = studioSettings[field.key]
-    if (typeof value === 'boolean') input.checked = value
-    else input.value = String(value)
-    input.nextElementSibling!.textContent = typeof value === 'number' ? value.toFixed(2) : ''
-  }
-}
-app.querySelector<HTMLElement>('.studio-panel')!.addEventListener('input', (event) => {
-  const input = event.target as HTMLInputElement
-  const key = input.dataset.studioKey as StudioKey | undefined
-  if (!key) return
-  ;(studioSettings as Record<StudioKey, string | number | boolean>)[key] = input.type === 'checkbox' ? input.checked : input.type === 'color' ? input.value : Number(input.value)
-  applyStudioSettings()
-  scheduleAutoSaveScene()
-})
 
 const bottleRoot = new THREE.Group()
 scene.add(bottleRoot)
@@ -610,106 +474,94 @@ const bottleDragTarget = app.querySelector<HTMLDivElement>('.bottle-drag-target'
 let bottleSize: THREE.Vector3 | null = null
 let baseScale = 1
 let sphereComposition: ReturnType<typeof createSphereComposition> | null = null
-const sphereSelection = app.querySelector<HTMLParagraphElement>('.sphere-selection')!
-app.querySelector<HTMLDetailsElement>('.sphere-editor')!.addEventListener('toggle', (event) => {
-  document.documentElement.classList.toggle('sphere-editing', creatorMode && (event.target as HTMLDetailsElement).open)
-})
-const spherePositionList = app.querySelector<HTMLDivElement>('.sphere-position-list')!
-let selectedSphere = -1
-let draggedSphere = -1
-let dragOffset = new THREE.Vector3()
-const sphereDragPlane = new THREE.Plane()
-const sphereDragRay = new THREE.Raycaster()
-const spherePointer = new THREE.Vector2()
-const sphereHit = new THREE.Vector3()
-
-function showSelectedSphere() {
-  if (selectedSphere < 0 || !sphereComposition) {
-    sphereSelection.textContent = 'Select a sphere in the scene to edit its position.'
-    spherePositionList.hidden = true
-    return
+const arrangeLayer = app.querySelector<HTMLDivElement>('.sphere-arrange-layer')!
+const sphereSelected = app.querySelector<HTMLSelectElement>('.sphere-selected')!
+const positionInputs = Array.from(app.querySelectorAll<HTMLInputElement>('[data-sphere-position]'))
+let selectedSphere = 0
+let draggingSphere = -1
+let previousSphereFrame = 0
+function updateSphereHandles() {
+  if (arrangeLayer.hidden || !sphereComposition) return
+  const centers = sphereComposition.centers()
+  if (arrangeLayer.childElementCount !== centers.length) {
+    arrangeLayer.replaceChildren(...centers.map((_, index) => {
+      const handle = document.createElement('button')
+      handle.type = 'button'
+      handle.className = 'sphere-handle'
+      handle.setAttribute('aria-label', `Move sphere ${index + 1}`)
+      handle.dataset.index = String(index)
+      return handle
+    }))
   }
-  const point = sphereComposition.positionOf(selectedSphere)
-  if (!point) return
-  sphereSelection.textContent = `Sphere ${selectedSphere + 1} selected. Drag it in the scene, or adjust X, Y and depth below.`
-  spherePositionList.hidden = false
-  spherePositionList.innerHTML = (['x', 'y', 'z'] as const).map((axis) => `
-    <label class="control"><span class="control-heading"><span>Position ${axis.toUpperCase()}</span><output>${point[axis].toFixed(2)}</output></span>
-    <input type="range" data-sphere-axis="${axis}" min="${axis === 'z' ? -6 : -8}" max="${axis === 'z' ? 6 : 8}" step="0.01" value="${point[axis]}" /></label>
-  `).join('') + `<label class="control"><span class="control-heading"><span>Scale</span><output>${(sphereSettings.scales[String(selectedSphere)] ?? 1).toFixed(2)}</output></span><input type="range" data-sphere-transform="scale" min="0.2" max="3" step="0.01" value="${sphereSettings.scales[String(selectedSphere)] ?? 1}" /></label><label class="control"><span class="control-heading"><span>Y rotation</span><output>${(sphereSettings.rotations[String(selectedSphere)] ?? 0).toFixed(0)}</output></span><input type="range" data-sphere-transform="rotation" min="-180" max="180" step="1" value="${sphereSettings.rotations[String(selectedSphere)] ?? 0}" /></label>`
+  centers.forEach((center, index) => {
+    const handle = arrangeLayer.children[index] as HTMLButtonElement
+    handle.style.left = `${(center.x + 1) * 50}%`
+    handle.style.top = `${(1 - center.y) * 50}%`
+    handle.classList.toggle('is-selected', index === selectedSphere)
+  })
 }
-
-spherePositionList.addEventListener('input', (event) => {
-  if (selectedSphere < 0) return
-  const input = event.target as HTMLInputElement
-  const axis = input.dataset.sphereAxis as 'x' | 'y' | 'z' | undefined
-  if (!axis) {
-    if (input.dataset.sphereTransform === 'scale') sphereSettings.scales[String(selectedSphere)] = Number(input.value)
-    else if (input.dataset.sphereTransform === 'rotation') sphereSettings.rotations[String(selectedSphere)] = Number(input.value)
-    else return
-    sphereComposition?.update(sphereSettings)
-    input.parentElement!.querySelector('output')!.value = input.value
-    scheduleAutoSaveScene()
-    return
+function updateSelectedSphere() {
+  if (!sphereComposition) return
+  const point = sphereComposition.point(selectedSphere)
+  for (const input of positionInputs) input.value = String(point[input.dataset.spherePosition as 'x' | 'y' | 'depth'])
+  sphereSelected.value = String(selectedSphere)
+  updateSphereHandles()
+}
+function setSpherePosition(index: number, point: { x: number; y: number; depth: number }) {
+  sphereSettings.positions[String(index)] = {
+    x: THREE.MathUtils.clamp(point.x, -1.15, 1.15),
+    y: THREE.MathUtils.clamp(point.y, -1.15, 1.15),
+    depth: THREE.MathUtils.clamp(point.depth, 0, 1),
   }
-  const point = sphereComposition?.positionOf(selectedSphere)
-  if (!point) return
-  point[axis] = Number(input.value)
-  sphereSettings.positions[String(selectedSphere)] = { x: point.x, y: point.y, z: point.z }
-  sphereComposition?.update(sphereSettings)
-  input.parentElement!.querySelector('output')!.value = point[axis].toFixed(2)
+  applySphereSettings()
   scheduleAutoSaveScene()
-})
-
-function rayAt(event: PointerEvent) {
-  const rect = sceneLayer.getBoundingClientRect()
-  spherePointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1)
-  sphereDragRay.setFromCamera(spherePointer, camera)
-  return rect
 }
-
-window.addEventListener('pointermove', (event) => {
-  if (!creatorMode || !document.documentElement.classList.contains('sphere-editing') || !sphereComposition) return
-  const rect = rayAt(event)
-  if (draggedSphere >= 0) {
-    if (sphereDragRay.ray.intersectPlane(sphereDragPlane, sphereHit)) {
-      const point = sphereHit.clone().add(dragOffset)
-      sphereSettings.positions[String(draggedSphere)] = { x: point.x, y: point.y, z: point.z }
-      sphereComposition.update(sphereSettings)
-      particleFrame.contentWindow?.postMessage({ type: 'nocturne:sphere-drag', active: true, x: event.clientX, y: event.clientY }, location.origin)
-      showSelectedSphere()
-      scheduleAutoSaveScene()
-    }
-  } else {
-    const index = sphereComposition.pick(event.clientX, event.clientY, rect)
-    sphereComposition.setHovered(index)
-    renderer.domElement.style.cursor = index >= 0 ? 'grab' : ''
-  }
-})
-window.addEventListener('pointerdown', (event) => {
-  if (!creatorMode || !document.documentElement.classList.contains('sphere-editing') || event.button !== 0 || !sphereComposition || !(event.target instanceof Element)) return
-  if (!event.target.closest('.site-hero') || event.target.closest('.bottle-drag-target, .hero-copy, button, a')) return
-  const rect = rayAt(event)
-  const index = sphereComposition.pick(event.clientX, event.clientY, rect)
-  if (index < 0) return
-  selectedSphere = draggedSphere = index
-  sphereComposition.setHovered(index)
-  const point = sphereComposition.positionOf(index)!
-  sphereDragPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), point)
-  sphereDragRay.ray.intersectPlane(sphereDragPlane, sphereHit)
-  dragOffset = point.clone().sub(sphereHit)
-  showSelectedSphere()
+arrangeLayer.addEventListener('pointerdown', (event) => {
+  const handle = (event.target as HTMLElement).closest<HTMLButtonElement>('.sphere-handle')
+  if (!handle) return
+  selectedSphere = Number(handle.dataset.index)
+  draggingSphere = selectedSphere
+  handle.setPointerCapture(event.pointerId)
+  sphereComposition?.setHovered(selectedSphere)
+  updateSelectedSphere()
   event.preventDefault()
 })
-window.addEventListener('pointerup', () => { draggedSphere = -1; particleFrame.contentWindow?.postMessage({ type: 'nocturne:sphere-drag', active: false }, location.origin) })
-window.addEventListener('pointercancel', () => { draggedSphere = -1; particleFrame.contentWindow?.postMessage({ type: 'nocturne:sphere-drag', active: false }, location.origin) })
+arrangeLayer.addEventListener('pointermove', (event) => {
+  const rect = arrangeLayer.getBoundingClientRect()
+  if (draggingSphere >= 0) {
+    const point = sphereComposition?.point(draggingSphere)
+    setSpherePosition(draggingSphere, {
+      x: (event.clientX - rect.left) / rect.width * 2 - 1,
+      y: 1 - (event.clientY - rect.top) / rect.height * 2,
+      depth: point?.depth ?? 0.5,
+    })
+  } else sphereComposition?.setHovered(sphereComposition.hitTest(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height))
+})
+arrangeLayer.addEventListener('pointerup', () => { draggingSphere = -1 })
+arrangeLayer.addEventListener('pointercancel', () => { draggingSphere = -1 })
+arrangeLayer.addEventListener('pointerleave', () => { if (draggingSphere < 0) sphereComposition?.setHovered(-1) })
+app.querySelector<HTMLButtonElement>('.sphere-arrange-toggle')!.addEventListener('click', (event) => {
+  arrangeLayer.hidden = !arrangeLayer.hidden
+  ;(event.currentTarget as HTMLButtonElement).setAttribute('aria-pressed', String(!arrangeLayer.hidden))
+  if (arrangeLayer.hidden) sphereComposition?.setHovered(-1)
+  updateSphereHandles()
+})
+sphereSelected.addEventListener('change', () => { selectedSphere = Number(sphereSelected.value); updateSelectedSphere() })
+for (const input of positionInputs) input.addEventListener('input', () => {
+  const key = input.dataset.spherePosition as 'x' | 'y' | 'depth'
+  const point = sphereComposition?.point(selectedSphere) ?? { x: 0, y: 0, depth: 0.5 }
+  setSpherePosition(selectedSphere, { ...point, [key]: Number(input.value) })
+})
+app.querySelector<HTMLButtonElement>('.sphere-reset-selected')!.addEventListener('click', () => {
+  delete sphereSettings.positions[String(selectedSphere)]
+  applySphereSettings()
+  scheduleAutoSaveScene()
+})
 let idleYaw = 0
 let lastFrameTime = 0
 let resumeIdleAt = 0
 let draggingBottle = false
 let lastPointerX = 0
-let lastPointerTime = 0
-let yawVelocity = 0
 
 function updateBottleDragTarget() {
   if (!bottleSize) return
@@ -733,28 +585,20 @@ function stopBottleDrag(event: PointerEvent) {
   draggingBottle = false
   if (bottleDragTarget.hasPointerCapture(event.pointerId)) bottleDragTarget.releasePointerCapture(event.pointerId)
   resumeIdleAt = performance.now() + 3000
-  scheduleAutoSaveScene()
 }
 
 bottleDragTarget.addEventListener('pointerdown', (event) => {
   if (event.button !== 0) return
   draggingBottle = true
   lastPointerX = event.clientX
-  lastPointerTime = performance.now()
-  yawVelocity = 0
   bottleDragTarget.setPointerCapture(event.pointerId)
   event.preventDefault()
 })
 bottleDragTarget.addEventListener('pointermove', (event) => {
   if (!draggingBottle) return
   const delta = event.clientX - lastPointerX
-  const now = performance.now()
-  const dt = Math.max((now - lastPointerTime) / 1000, 0.008)
-  lastPointerTime = now
   lastPointerX = event.clientX
-  const angularDelta = delta * studioSettings.dragSensitivity
-  yawVelocity = THREE.MathUtils.clamp(angularDelta / dt, -studioSettings.maxRotationSpeed, studioSettings.maxRotationSpeed)
-  settings.rotationY = THREE.MathUtils.euclideanModulo(settings.rotationY + angularDelta + 180, 360) - 180
+  settings.rotationY = THREE.MathUtils.euclideanModulo(settings.rotationY + delta * 0.4 + 180, 360) - 180
   applySettings()
   scheduleAutoSaveScene()
 })
@@ -772,17 +616,24 @@ bottleDragTarget.addEventListener('keydown', (event) => {
 function frameBottle() {
   if (!bottleSize) return
   const aspect = sceneLayer.clientWidth / Math.max(sceneLayer.clientHeight, 1)
-  const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(defaults.cameraFov / 2)) * defaults.cameraDistance
+  const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(settings.cameraFov / 2)) * settings.cameraDistance
   const viewWidth = viewHeight * aspect
+  const portrait = aspect < 0.8
+  const targetHeight = portrait ? (sceneLayer.clientHeight < 720 ? 0.36 : 0.42) : aspect < 1.35 ? 0.49 : 0.52
+  const targetWidth = portrait ? 0.70 : aspect < 1.35 ? 0.50 : 0.29
   baseScale = Math.min(
-    (viewHeight * 0.74) / Math.max(bottleSize.y, 0.001),
-    (viewWidth * 0.72) / Math.max(bottleSize.x, 0.001),
+    (viewHeight * targetHeight) / Math.max(bottleSize.y, 0.001),
+    (viewWidth * targetWidth) / Math.max(bottleSize.x, 0.001),
   )
   applySettings()
 }
 
 function applySettings() {
-  bottleRoot.position.set(settings.positionX, settings.positionY, settings.positionZ)
+  const aspect = sceneLayer.clientWidth / Math.max(sceneLayer.clientHeight, 1)
+  const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(settings.cameraFov / 2)) * settings.cameraDistance
+  // Move the bottle higher on portrait screens to reserve a clear text zone.
+  const compositionY = aspect < 0.8 ? 0.11 : 0.055
+  bottleRoot.position.set(settings.positionX, settings.positionY + viewHeight * compositionY, settings.positionZ)
   bottleRoot.scale.setScalar(baseScale * settings.scale)
   bottleRoot.rotation.set(
     THREE.MathUtils.degToRad(settings.rotationX),
@@ -801,6 +652,7 @@ function applySettings() {
     output.value = settings[key].toFixed(Number.isInteger(settings[key]) ? 0 : 2) + (unit ?? '')
   }
   sphereComposition?.update(sphereSettings)
+  updateSphereHandles()
   updateBottleDragTarget()
 }
 
@@ -809,6 +661,10 @@ function applySphereSettings() {
     sphereSettings.scaleMin = sphereSettings.scaleMax
   }
   sphereComposition?.update(sphereSettings)
+  const count = Math.round(sphereSettings.count)
+  if (selectedSphere >= count) selectedSphere = Math.max(0, count - 1)
+  sphereSelected.replaceChildren(...Array.from({ length: count }, (_, index) => new Option(`Sphere ${index + 1}`, String(index))))
+  updateSelectedSphere()
   for (const { key } of sphereControls) {
     const input = sphereControlList.querySelector<HTMLInputElement>(`[data-sphere-setting="${key}"]`)!
     const output = sphereControlList.querySelector<HTMLOutputElement>(`[data-sphere-value="${key}"]`)!
@@ -820,6 +676,7 @@ function applySphereSettings() {
 function resize() {
   const width = Math.max(sceneLayer.clientWidth, 1)
   const height = Math.max(sceneLayer.clientHeight, 1)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, width < 700 ? 1.5 : 2))
   renderer.setSize(width, height, false)
   camera.aspect = width / height
   camera.updateProjectionMatrix()
@@ -839,7 +696,7 @@ controlList.addEventListener('input', (event) => {
 
 sphereControlList.addEventListener('input', (event) => {
   const input = event.target as HTMLInputElement
-  const key = input.dataset.sphereSetting as SphereNumberKey | undefined
+  const key = input.dataset.sphereSetting as Exclude<keyof SphereSettings, 'positions'> | undefined
   if (!key) return
   sphereSettings[key] = Number(input.value)
   applySphereSettings()
@@ -863,13 +720,8 @@ app.querySelector<HTMLButtonElement>('[data-ripple-action="reset"]')!.addEventLi
 })
 
 app.querySelector<HTMLButtonElement>('[data-sphere-action="reset"]')!.addEventListener('click', () => {
-  Object.assign(sphereSettings, sphereDefaults)
-  sphereSettings.positions = {}
-  sphereSettings.scales = {}
-  sphereSettings.rotations = {}
-  selectedSphere = -1
+  Object.assign(sphereSettings, structuredClone(sphereDefaults))
   applySphereSettings()
-  showSelectedSphere()
   sphereEditorMessage.textContent = 'Sphere settings reset.'
   scheduleAutoSaveScene()
 })
@@ -951,7 +803,6 @@ new GLTFLoader().load(
     bottleSize = bounds.getSize(new THREE.Vector3())
     bottle.position.sub(bounds.getCenter(new THREE.Vector3()))
     bottleRoot.add(bottle)
-    applyStudioSettings()
     frameBottle()
     loadStatus.remove()
   },
@@ -967,7 +818,6 @@ new GLTFLoader().load(
   (gltf) => {
     sphereComposition = createSphereComposition(scene, camera, gltf.scene)
     applySphereSettings()
-    showSelectedSphere()
   },
   undefined,
   (error) => {
@@ -983,19 +833,11 @@ if (import.meta.env.DEV) {
     __nocturneRipples: { settings: rippleSettings },
   })
 }
-rememberScene()
-if (!creatorMode) studioPanel.remove()
 renderer.setAnimationLoop((time) => {
-  sphereComposition?.tick(lastFrameTime ? (time - lastFrameTime) / 1000 : 0, sphereSettings)
-  if (lastFrameTime && !draggingBottle && !document.hidden) {
-    const dt = Math.min((time - lastFrameTime) / 1000, 0.1)
-    if (Math.abs(yawVelocity) > 0.01) {
-      settings.rotationY = THREE.MathUtils.euclideanModulo(settings.rotationY + yawVelocity * dt + 180, 360) - 180
-      yawVelocity *= Math.exp(-studioSettings.damping * (1 - studioSettings.inertia * 0.9) * dt)
-      if (Math.abs(yawVelocity) < 0.1) { yawVelocity = 0; scheduleAutoSaveScene() }
-    } else if (time >= resumeIdleAt && studioSettings.autoRotation) {
-      idleYaw += dt * THREE.MathUtils.degToRad(studioSettings.autoRotationSpeed)
-    }
+  if (previousSphereFrame) sphereComposition?.tick(Math.min((time - previousSphereFrame) / 1000, 0.05))
+  previousSphereFrame = time
+  if (lastFrameTime && !draggingBottle && time >= resumeIdleAt && !document.hidden) {
+    idleYaw += Math.min((time - lastFrameTime) / 1000, 0.1) * THREE.MathUtils.degToRad(4)
     bottleRoot.rotation.y = THREE.MathUtils.degToRad(settings.rotationY) + idleYaw
   }
   lastFrameTime = time
