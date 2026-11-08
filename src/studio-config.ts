@@ -43,9 +43,29 @@ export function mergeConfig(value:unknown):StudioConfig{
   if(Array.isArray(raw.brushes))copy.brushes=raw.brushes.filter((e:unknown)=>e&&typeof e==='object').slice(0,200) as StudioConfig['brushes']
   return copy
 }
+function legacyConfig():StudioConfig|undefined{
+  let raw:unknown
+  try{raw=JSON.parse(localStorage.getItem('nocturne.scene-config')||localStorage.getItem('nocturne.scene-config.saved')||'null')}catch{return}
+  if(!raw||typeof raw!=='object')return
+  const source=raw as Record<string,unknown>,bottle=source.bottle as Record<string,unknown>|undefined
+  if(!bottle)return
+  const next=structuredClone(production)
+  const number=(name:string)=>typeof bottle[name]==='number'&&Number.isFinite(bottle[name])?bottle[name] as number:undefined
+  for(const [legacy,current] of [['positionX','x'],['positionY','y'],['positionZ','z'],['scale','scale']] as const){
+    const n=number(legacy);if(n!==undefined)next.bottle[current]=n
+  }
+  for(const [legacy,current] of [['rotationX','rotationX'],['rotationY','rotationY'],['rotationZ','rotationZ']] as const){
+    const n=number(legacy);if(n!==undefined)next.bottle[current]=n*Math.PI/180
+  }
+  const fov=number('cameraFov'),distance=number('cameraDistance'),keyLight=number('keyLightIntensity')
+  if(fov!==undefined)next.camera.fov=fov
+  if(distance!==undefined)next.camera.distance=distance
+  if(keyLight!==undefined)next.lighting.key=keyLight
+  return next
+}
 export function loadConfig(creator:boolean){
   if(!creator)return structuredClone(production)
-  try{return mergeConfig(JSON.parse(localStorage.getItem(key)||'null'))}catch{return structuredClone(production)}
+  try{const saved=localStorage.getItem(key);return saved?mergeConfig(JSON.parse(saved)):legacyConfig()??structuredClone(production)}catch{return legacyConfig()??structuredClone(production)}
 }
 export function saveConfig(config:StudioConfig){localStorage.setItem(key,JSON.stringify(config))}
 export function loadPresets():Record<string,StudioConfig>{
