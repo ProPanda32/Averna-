@@ -46,10 +46,14 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   const mossStrength={value:1}
   const mossMaterial = new THREE.MeshStandardMaterial({color:'#76813d',roughness:.82,metalness:.08})
   mossMaterial.onBeforeCompile = s => {
-    s.uniforms.mossOffset=mossOffset;s.uniforms.mossEnabled=mossEnabled;s.uniforms.mossStrength=mossStrength
-    s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 mossPosition; attribute vec2 simRef; uniform sampler2D mossOffset; uniform float mossEnabled,mossStrength;')
+    Object.assign(s.uniforms,{mossOffset,mossEnabled,mossStrength,hoverPointer:pointer,hoverActive:active,hoverSpeed:speed,hoverRadius:radius,hoverRepulsion:repulsion,hoverAttraction:attraction,hoverSensitivity:velocitySensitivity})
+    s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 mossPosition; attribute vec2 simRef; uniform sampler2D mossOffset; uniform float mossEnabled,mossStrength; uniform vec2 hoverPointer; uniform float hoverActive,hoverSpeed,hoverRadius,hoverRepulsion,hoverAttraction,hoverSensitivity;')
       .replace('#include <begin_vertex>','#include <begin_vertex>\nmossPosition=position;')
-      .replace('#include <project_vertex>',THREE.ShaderChunk.project_vertex.replace('mvPosition = instanceMatrix * mvPosition;', 'mvPosition = instanceMatrix * mvPosition; mvPosition.xyz += texture2D(mossOffset,simRef).xyz*mossEnabled*mossStrength;'))
+      .replace('#include <project_vertex>',THREE.ShaderChunk.project_vertex.replace('mvPosition = instanceMatrix * mvPosition;', 'mvPosition = instanceMatrix * mvPosition; mvPosition.xyz += texture2D(mossOffset,simRef).xyz*mossEnabled*mossStrength;')+`
+        vec2 hoverDelta=gl_Position.xy/max(gl_Position.w,.001)-hoverPointer;
+        float hoverFalloff=exp(-dot(hoverDelta,hoverDelta)*4./max(hoverRadius*hoverRadius*.0324,.0001));
+        float hoverDistance=(.022+min(hoverSpeed*hoverSensitivity,4.)*.009)*hoverActive*hoverFalloff*hoverRepulsion*mossStrength*(1.-2.*hoverAttraction);
+        gl_Position.xy+=normalize(hoverDelta+vec2(.0001))*hoverDistance*gl_Position.w;`)
     s.fragmentShader=s.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 mossPosition;')
       .replace('#include <color_fragment>',`#include <color_fragment>
         float n=sin(mossPosition.x*43.)*sin(mossPosition.y*47.)*sin(mossPosition.z*39.);
@@ -199,33 +203,37 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     color.set(palette[hue]).multiplyScalar(r(.3,hue===4?1.1:2.2));colors.set(color.toArray(),i*3)
     sizes[i]=i%127===0?r(4,7):r(1.1,3.8)
   }
-  const pointer={value:new THREE.Vector2(99,99)}, cameraPosition={value:camera.position.clone()}, projectionScale={value:new THREE.Vector2()}, speed={value:0}, dt={value:1/60}, elapsed={value:0}, active={value:0}
+  const pointer={value:new THREE.Vector2(99,99)}, particleCameraEye={value:camera.position.clone()}, projectionScale={value:new THREE.Vector2()}, speed={value:0}, dt={value:1/60}, elapsed={value:0}, active={value:0}
   const repulsion={value:1}, radius={value:1}, returnStrength={value:3.8}, damping={value:3.2}, motionScale={value:1}, ambientSpeed={value:1}, attraction={value:0}, velocitySensitivity={value:1}, sphereForce={value:1}, spherePointer={value:new THREE.Vector3(99,99,0)}, sphereSpeed={value:0}
   const velocity=gpu.addVariable('velocity',`
-    uniform sampler2D origins;uniform vec2 pointer,projectionScale;uniform vec3 cameraPosition,spherePointer;uniform float dt,speed,pointerActive,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,sphereSpeed;
+    uniform sampler2D origins;uniform vec2 pointer,projectionScale;uniform vec3 particleCameraEye,spherePointer;uniform float dt,speed,pointerActive,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,sphereSpeed;
     void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;
       vec3 p=texture2D(origins,uv).xyz;vec3 o=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;
-      vec3 location=p+o;vec2 projected=(location.xy-cameraPosition.xy)*projectionScale/max(cameraPosition.z-location.z,.1);
+      vec3 location=p+o;vec2 projected=(location.xy-particleCameraEye.xy)*projectionScale/max(particleCameraEye.z-location.z,.1);
       vec2 d=projected-pointer;float influence=exp(-dot(d,d)*4./max(radius*radius*.0324,.0001))*pointerActive;
-      vec3 force=normalize(vec3(d.x/projectionScale.x,d.y/projectionScale.y,.0001))*influence*(.2+min(speed*velocitySensitivity,4.)*.7)*repulsion*(1.-2.*attraction);
+      vec3 force=normalize(vec3(d.x/projectionScale.x,d.y/projectionScale.y,.0001))*influence*(1.+min(speed*velocitySensitivity*40.,18.))*repulsion*(1.-2.*attraction);
       vec3 sd=p+o-spherePointer;float si=exp(-dot(sd,sd)*4.);force+=normalize(sd+vec3(.0001))*si*sphereSpeed*sphereForce*.4;
       v+=(force-o*returnStrength)*dt*motionScale;v*=exp(-dt*damping);
-      gl_FragColor=vec4(clamp(v,vec3(-.8),vec3(.8)),1.);}`,zero)
+      gl_FragColor=vec4(clamp(v,vec3(-2.),vec3(2.)),1.);}`,zero)
   const offsets=gpu.addVariable('offsets',`uniform float dt;void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;vec3 p=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;gl_FragColor=vec4(p+v*dt,1.);}`,zero.clone())
   gpu.setVariableDependencies(velocity,[velocity,offsets]);gpu.setVariableDependencies(offsets,[velocity,offsets])
-  Object.assign(velocity.material.uniforms,{origins:{value:origin},pointer,cameraPosition,projectionScale,speed,dt,pointerActive:active,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,spherePointer,sphereSpeed})
+  Object.assign(velocity.material.uniforms,{origins:{value:origin},pointer,particleCameraEye,projectionScale,speed,dt,pointerActive:active,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,spherePointer,sphereSpeed})
   offsets.material.uniforms.dt=dt
   const gpuError=gpu.init()
   mossOffset.value=zero;mossEnabled.value=gpuError?0:1
   if(gpuError) console.warn('Particle simulation unavailable; using animated vertex field:',gpuError)
   const material=new THREE.ShaderMaterial({
     transparent:true,depthWrite:false,blending:THREE.NormalBlending,
-    uniforms:{offsetMap:{value:zero},simulate:{value:gpuError?0:1},time:elapsed,pixelRatio:{value:renderer.getPixelRatio()},sizeMultiplier:{value:1},opacityMultiplier:{value:.92},brightnessMultiplier:{value:1},ambientSpeed},
+    uniforms:{offsetMap:{value:zero},simulate:{value:gpuError?0:1},time:elapsed,pixelRatio:{value:renderer.getPixelRatio()},sizeMultiplier:{value:1},opacityMultiplier:{value:.92},brightnessMultiplier:{value:1},ambientSpeed,hoverPointer:pointer,hoverActive:active,hoverSpeed:speed,hoverRadius:radius,hoverRepulsion:repulsion,hoverAttraction:attraction,hoverSensitivity:velocitySensitivity},
     vertexShader:`attribute vec2 reference;attribute float beadSize;attribute vec3 tint;
-      uniform sampler2D offsetMap;uniform float simulate,time,pixelRatio,sizeMultiplier,ambientSpeed;varying vec3 vColor;varying float fog;
+      uniform sampler2D offsetMap;uniform vec2 hoverPointer;uniform float simulate,time,pixelRatio,sizeMultiplier,ambientSpeed,hoverActive,hoverSpeed,hoverRadius,hoverRepulsion,hoverAttraction,hoverSensitivity;varying vec3 vColor;varying float fog;
       void main(){vec3 p=position+texture2D(offsetMap,reference).xyz*simulate;
         p+=vec3(sin(time*ambientSpeed*.18+p.y*3.),cos(time*ambientSpeed*.13+p.x*2.),0.)*.009;
         vec4 v=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*v;
+        vec2 hoverDelta=gl_Position.xy/max(gl_Position.w,.001)-hoverPointer;
+        float hoverFalloff=exp(-dot(hoverDelta,hoverDelta)*4./max(hoverRadius*hoverRadius*.0324,.0001));
+        float hoverDistance=(.022+min(hoverSpeed*hoverSensitivity,4.)*.009)*hoverActive*hoverFalloff*hoverRepulsion*(1.-2.*hoverAttraction);
+        gl_Position.xy+=normalize(hoverDelta+vec2(.0001))*hoverDistance*gl_Position.w;
         gl_PointSize=clamp(beadSize*sizeMultiplier*pixelRatio*5./-v.z,1.,14.);vColor=tint;fog=exp(-max(-v.z-6.,0.)*.08);}`,
     fragmentShader:`varying vec3 vColor;varying float fog;uniform float opacityMultiplier,brightnessMultiplier;void main(){vec2 p=gl_PointCoord*2.-1.;float r=dot(p,p);if(r>1.)discard;
       float z=sqrt(1.-r);vec3 n=vec3(p,z);float diffuse=.18+.55*max(dot(n,normalize(vec3(-.6,.8,1.))),0.);
@@ -238,6 +246,22 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   geometry.setAttribute('tint',new THREE.BufferAttribute(colors,3));geometry.setAttribute('beadSize',new THREE.BufferAttribute(sizes,1))
   const particles=new THREE.Points(geometry,material);particles.layers.set(WORLD);particles.frustumCulled=false;particles.name='GPU botanical bead field';root.add(particles)
   const drawingSize=new THREE.Vector2()
+  let simulationFrames=0
+  function probeMoss(){
+    const projection=new THREE.Vector3(), readback=new Float32Array(4), velocityReadback=new Float32Array(4)
+    let index=0, nearest=Infinity
+    for(let i=0;i<mossPositions.length;i++){
+      projection.copy(mossPositions[i]).project(camera)
+      const distance=(projection.x-.55)**2+(projection.y-.12)**2
+      if(projection.z<1&&distance<nearest){nearest=distance;index=i}
+    }
+    projection.copy(mossPositions[index]).project(camera)
+    if(!gpuError){
+      renderer.readRenderTargetPixels(gpu.getCurrentRenderTarget(offsets),index%dimension,Math.floor(index/dimension),1,1,readback)
+      renderer.readRenderTargetPixels(gpu.getCurrentRenderTarget(velocity),index%dimension,Math.floor(index/dimension),1,1,velocityReadback)
+    }
+    return {x:projection.x,y:projection.y,origin:mossPositions[index].toArray(),offset:[readback[0],readback[1],readback[2]],velocity:[velocityReadback[0],velocityReadback[1],velocityReadback[2]],pointer:[pointer.value.x,pointer.value.y],active:active.value,frames:simulationFrames,enabled:!gpuError}
+  }
   const sphereMaterials={glass,pink,amber,moss:mossOrb,cream:pearl,gold}
   function syncSpheres(settings:Record<string,SphereTransform>){
     for(const [id,saved] of Object.entries(settings)){
@@ -265,8 +289,8 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     }
   }
   return {
-    count, root, spheres, syncSpheres,
-    audit:()=>({repulsion:repulsion.value,radius:radius.value,returnStrength:returnStrength.value,damping:damping.value,size:material.uniforms.sizeMultiplier.value,opacity:material.uniforms.opacityMultiplier.value,mossCount,mossStrength:mossStrength.value,simulatedMoss:!gpuError}),
+    count, root, spheres, syncSpheres, probeMoss,
+    audit:()=>({repulsion:repulsion.value,radius:radius.value,returnStrength:returnStrength.value,damping:damping.value,size:material.uniforms.sizeMultiplier.value,opacity:material.uniforms.opacityMultiplier.value,mossCount,mossStrength:mossStrength.value,simulatedMoss:!gpuError,simulationFrames,pointerActive:active.value,pointerX:pointer.value.x,pointerY:pointer.value.y}),
     setControls(config:StudioConfig){
       const p=config.particles
       repulsion.value=p.repulsion;radius.value=p.radius;returnStrength.value=p.returnStrength;damping.value=p.damping;motionScale.value=p.speed;ambientSpeed.value=p.ambientSpeed
@@ -276,16 +300,17 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     },
     pointer(x:number,y:number,movement:number){pointer.value.set(x,y);speed.value=movement;active.value=1},
     sphereMove(position:THREE.Vector3,movement:number){spherePointer.value.copy(position);sphereSpeed.value=Math.min(movement,5)},
-    leave(){active.value=0},
+    leave(){active.value=Math.min(active.value,.95)},
     tick(seconds:number,delta:number,reduced:boolean){
       elapsed.value=reduced?0:seconds;dt.value=Math.min(delta,.033)
-      cameraPosition.value.copy(camera.position)
+      particleCameraEye.value.copy(camera.position)
       const tangent=Math.tan(THREE.MathUtils.degToRad(camera.fov/2));projectionScale.value.set(1/(tangent*camera.aspect),1/tangent)
       material.uniforms.pixelRatio.value=renderer.getPixelRatio()
-      if(!gpuError&&!reduced){gpu.compute();const texture=gpu.getCurrentRenderTarget(offsets).texture;material.uniforms.offsetMap.value=texture;mossOffset.value=texture}
+      if(!gpuError&&!reduced){gpu.compute();simulationFrames++;const texture=gpu.getCurrentRenderTarget(offsets).texture;material.uniforms.offsetMap.value=texture;mossOffset.value=texture}
       renderer.getDrawingBufferSize(drawingSize)
       for(const m of [amber,pink,glass])if(m.userData.shader)m.userData.shader.uniforms.gardenSize.value.copy(drawingSize)
       speed.value*=Math.exp(-delta*4)
+      if(active.value<1)active.value*=Math.exp(-delta*5)
       sphereSpeed.value*=Math.exp(-delta*7)
       for(const {mesh,home,phase} of spheres){
         if(!mesh.visible)continue
