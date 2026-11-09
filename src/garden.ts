@@ -207,7 +207,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
       vec3 p=texture2D(origins,uv).xyz;vec3 o=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;
       vec3 location=p+o;vec2 projected=(location.xy-particleCameraEye.xy)*projectionScale/max(particleCameraEye.z-location.z,.1);
       vec2 d=projected-pointer;float influence=exp(-dot(d,d)*4./max(radius*radius*.0324,.0001))*pointerActive;
-      vec3 force=normalize(vec3(d.x/projectionScale.x,d.y/projectionScale.y,.0001))*influence*(.2+min(speed*velocitySensitivity,4.)*.7)*repulsion*(1.-2.*attraction);
+      vec3 force=normalize(vec3(d.x/projectionScale.x,d.y/projectionScale.y,.0001))*influence*(.45+min(speed*velocitySensitivity,4.)*.7)*repulsion*(1.-2.*attraction);
       vec3 sd=p+o-spherePointer;float si=exp(-dot(sd,sd)*4.);force+=normalize(sd+vec3(.0001))*si*sphereSpeed*sphereForce*.4;
       v+=(force-o*returnStrength)*dt*motionScale;v*=exp(-dt*damping);
       gl_FragColor=vec4(clamp(v,vec3(-.8),vec3(.8)),1.);}`,zero)
@@ -238,6 +238,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   geometry.setAttribute('tint',new THREE.BufferAttribute(colors,3));geometry.setAttribute('beadSize',new THREE.BufferAttribute(sizes,1))
   const particles=new THREE.Points(geometry,material);particles.layers.set(WORLD);particles.frustumCulled=false;particles.name='GPU botanical bead field';root.add(particles)
   const drawingSize=new THREE.Vector2()
+  let simulationFrames=0
   function probeMoss(){
     const projection=new THREE.Vector3(), readback=new Float32Array(4)
     let index=0, nearest=Infinity
@@ -278,7 +279,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   }
   return {
     count, root, spheres, syncSpheres, probeMoss,
-    audit:()=>({repulsion:repulsion.value,radius:radius.value,returnStrength:returnStrength.value,damping:damping.value,size:material.uniforms.sizeMultiplier.value,opacity:material.uniforms.opacityMultiplier.value,mossCount,mossStrength:mossStrength.value,simulatedMoss:!gpuError}),
+    audit:()=>({repulsion:repulsion.value,radius:radius.value,returnStrength:returnStrength.value,damping:damping.value,size:material.uniforms.sizeMultiplier.value,opacity:material.uniforms.opacityMultiplier.value,mossCount,mossStrength:mossStrength.value,simulatedMoss:!gpuError,simulationFrames,pointerActive:active.value,pointerX:pointer.value.x,pointerY:pointer.value.y}),
     setControls(config:StudioConfig){
       const p=config.particles
       repulsion.value=p.repulsion;radius.value=p.radius;returnStrength.value=p.returnStrength;damping.value=p.damping;motionScale.value=p.speed;ambientSpeed.value=p.ambientSpeed
@@ -294,7 +295,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
       particleCameraEye.value.copy(camera.position)
       const tangent=Math.tan(THREE.MathUtils.degToRad(camera.fov/2));projectionScale.value.set(1/(tangent*camera.aspect),1/tangent)
       material.uniforms.pixelRatio.value=renderer.getPixelRatio()
-      if(!gpuError&&!reduced){gpu.compute();const texture=gpu.getCurrentRenderTarget(offsets).texture;material.uniforms.offsetMap.value=texture;mossOffset.value=texture}
+      if(!gpuError&&!reduced){gpu.compute();simulationFrames++;const texture=gpu.getCurrentRenderTarget(offsets).texture;material.uniforms.offsetMap.value=texture;mossOffset.value=texture}
       renderer.getDrawingBufferSize(drawingSize)
       for(const m of [amber,pink,glass])if(m.userData.shader)m.userData.shader.uniforms.gardenSize.value.copy(drawingSize)
       speed.value*=Math.exp(-delta*4)
