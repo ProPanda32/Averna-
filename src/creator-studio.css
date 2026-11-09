@@ -16,7 +16,9 @@
 .creator-sections p{font-size:12px;color:#b9ad9b}
 .creator-return{position:fixed;right:14px;top:14px;z-index:1000;padding:10px 15px}
 .creator-brush-overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5;mix-blend-mode:screen}
+.creator-brush-overlay[hidden]{display:none}
 .creator-brush-spot{position:absolute;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none}
+.creator-panel .creator-head button{white-space:nowrap}
 @media(max-width:700px){.creator-panel{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:52vh}.creator-control{grid-template-columns:1fr 80px 55px 28px}}
 
 .creator-control button{padding:2px 4px;line-height:1.3}
