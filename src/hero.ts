@@ -119,7 +119,7 @@ async function start() {
   const ambient=new THREE.HemisphereLight('#71848b','#342712',.25);scene.add(ambient)
   const warm=new THREE.PointLight('#ffbf69',2.2,8,2);warm.position.set(.15,.1,-1.4);scene.add(warm)
   let garden:ReturnType<typeof createGarden>|undefined, bottleSize:THREE.Vector3|undefined
-  let floor=.25, yaw=0, velocity=0, dragging=false, lastX=0, previousTime=0, inView=true, quality='auto', pixelCap=1.5, adaptiveLow=false
+  let floor=.25, yaw=0, velocity=0, dragging=false, lastX=0, previousTime=0, inView=true, quality='auto', pixelCap=1.5, adaptiveLow=false, currentDensity=config.particles.count
   let lastPointer=new THREE.Vector2(), lastPointerTime=0, rebuildTimer:number|undefined, lastDragTime=0
   let sphereDragging:{id:string;startX:number;startY:number;home:THREE.Vector3}|undefined
   const qualitySelect=app.querySelector<HTMLSelectElement>('#quality')!
@@ -139,12 +139,8 @@ async function start() {
     renderer.domElement.style.filter='hue-rotate('+config.atmosphere.hue+'deg)'
     stage.setAppearance(config)
     garden?.setControls(config)
-    garden?.spheres.forEach(({mesh,home},i)=>{
-      const saved=config.spheres[String(i)]
-      if(!saved)return
-      home.set(saved.x,saved.y,saved.z)
-      mesh.position.copy(home);mesh.scale.setScalar(saved.scale);mesh.rotation.y=saved.rotationY
-    })
+    garden?.syncSpheres(config.spheres)
+    if(garden&&currentDensity!==config.particles.count){currentDensity=config.particles.count;rebuildGarden()}
     frame()
     if(creatorMode)saveConfig(config)
   }
@@ -172,13 +168,13 @@ async function start() {
     renderer.setPixelRatio(Math.min(devicePixelRatio,pixelCap,w<700?1.5:2))
     renderer.setSize(w,h,false);frame()
   }
-  function rebuildGarden(){garden?.dispose();garden=createGarden(renderer,scene,camera,stage,hero.clientWidth<700||quality==='low'||adaptiveLow);hero.dataset.particles=String(garden.count);studio?.setSphereCount(garden.spheres.map(s=>({x:s.home.x,y:s.home.y,z:s.home.z,scale:s.mesh.scale.x,rotationY:s.mesh.rotation.y})));applyConfig()}
+  function rebuildGarden(){garden?.dispose();garden=createGarden(renderer,scene,camera,stage,hero.clientWidth<700||quality==='low'||adaptiveLow,config.particles.count);hero.dataset.particles=String(garden.count);studio?.setSphereCount(garden.spheres.map(s=>({x:s.home.x,y:s.home.y,z:s.home.z,scale:s.mesh.scale.x,rotationY:s.mesh.rotation.y})));applyConfig()}
   resize();rebuildGarden()
   const resizeObserver=new ResizeObserver(()=>{resize();window.clearTimeout(rebuildTimer);rebuildTimer=window.setTimeout(rebuildGarden,180)})
   resizeObserver.observe(hero)
 
-  target.addEventListener('pointerdown',e=>{if(e.button!==0||studio?.isBrushActive())return;dragging=true;lastX=e.clientX;lastDragTime=performance.now();velocity=0;target.setPointerCapture(e.pointerId);target.classList.add('is-dragging')})
-  target.addEventListener('pointermove',e=>{if(!dragging)return;const now=performance.now(),dt=Math.max((now-lastDragTime)/1000,.008);lastDragTime=now;const angle=(e.clientX-lastX)*.004*config.bottle.dragSensitivity;lastX=e.clientX;velocity=THREE.MathUtils.clamp(angle/dt,-config.bottle.maxSpeed,config.bottle.maxSpeed);yaw+=angle;root.rotation.y=yaw+config.bottle.rotationY})
+  target.addEventListener('pointerdown',e=>{if(e.button!==0||studio?.isBrushActive()||studio?.isSphereEditing())return;dragging=true;lastX=e.clientX;lastDragTime=performance.now();target.setPointerCapture(e.pointerId);target.classList.add('is-dragging')})
+  target.addEventListener('pointermove',e=>{if(!dragging)return;const now=performance.now(),dt=Math.max((now-lastDragTime)/1000,.008);lastDragTime=now;const angle=(e.clientX-lastX)*.004*config.bottle.dragSensitivity;lastX=e.clientX;const measured=THREE.MathUtils.clamp(angle/dt,-config.bottle.maxSpeed,config.bottle.maxSpeed);velocity=THREE.MathUtils.lerp(velocity,measured,.55);yaw+=angle;root.rotation.y=yaw+config.bottle.rotationY})
   const release=()=>{dragging=false;target.classList.remove('is-dragging')}
   target.addEventListener('pointerup',release);target.addEventListener('pointercancel',release);target.addEventListener('lostpointercapture',release)
   target.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();velocity=0;yaw+=(e.key==='ArrowRight'?1:-1)*.15;root.rotation.y=yaw+config.bottle.rotationY}})
@@ -193,7 +189,7 @@ async function start() {
       const found=picker.intersectObjects(garden.spheres.map(s=>s.mesh),false)[0]
       if(!found)return
       const i=garden.spheres.findIndex(s=>s.mesh===found.object);if(i<0)return
-      const sphere=garden.spheres[i],id=String(i)
+      const sphere=garden.spheres[i],id=sphere.id
       if(!config.spheres[id])config.spheres[id]={x:sphere.home.x,y:sphere.home.y,z:sphere.home.z,scale:sphere.mesh.scale.x,rotationY:sphere.mesh.rotation.y}
       if(config.spheres[id].locked)return
       studio.snapshot();studio.selectSphere(id)
@@ -202,7 +198,7 @@ async function start() {
     },true)
     hero.addEventListener('pointermove',e=>{
       if(!sphereDragging||!garden)return
-      const i=Number(sphereDragging.id),sphere=garden.spheres[i]
+      const sphere=garden.spheres.find(s=>s.id===sphereDragging!.id);if(!sphere)return
       const viewHeight=2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*(camera.position.z-sphereDragging.home.z)
       const dx=(e.clientX-sphereDragging.startX)/hero.clientWidth*viewHeight*camera.aspect
       const dy=-(e.clientY-sphereDragging.startY)/hero.clientHeight*viewHeight
@@ -211,7 +207,7 @@ async function start() {
       const transform=config.spheres[sphereDragging.id] as SphereTransform
       transform.x=sphere.home.x;transform.y=sphere.home.y
       studio.selectSphere(sphereDragging.id);studio.save()
-      const b=hero.getBoundingClientRect();garden.pointer((e.clientX-b.left)/b.width*2-1,1-(e.clientY-b.top)/b.height*2,Math.min(Math.hypot(dx,dy)*15,5))
+      garden.sphereMove(sphere.home,Math.min(Math.hypot(dx,dy)*15,5))
       e.stopPropagation()
     },true)
     const releaseSphere=()=>{sphereDragging=undefined}

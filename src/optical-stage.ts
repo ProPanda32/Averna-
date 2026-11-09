@@ -28,9 +28,9 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   })
   const sky = new THREE.ShaderMaterial({
     depthTest: false, depthWrite: false,
-    uniforms: { time, floorLine: floor, aspect: { value: 2 }, opticalFill: { value: 0 } }, vertexShader: screenVertex,
+    uniforms: { time, floorLine: floor, aspect: { value: 2 }, opticalFill: { value: 0 }, mistDensity:{value:0},mistColor:{value:new THREE.Color('#101c1e')} }, vertexShader: screenVertex,
     fragmentShader: `
-      varying vec2 vUv; uniform float time, floorLine, aspect,opticalFill;
+      varying vec2 vUv; uniform float time, floorLine, aspect,opticalFill,mistDensity; uniform vec3 mistColor;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
       void main(){
@@ -42,6 +42,7 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
         c+=vec3(.22,.105,.032)*gold*(.65+mist*.5);
         float shaft=pow(max(0.,1.-abs(p.x+.55*p.y-.98)*5.),14.);
         c+=vec3(.025,.047,.057)*shaft*mist;
+        c=mix(c,mistColor,clamp(mistDensity*mist*.35,0.,.75));
         float wet=1.-smoothstep(floorLine-.015,floorLine+.025,p.y);
         c=mix(c,vec3(.009,.012,.011),wet*.72);
         // A diffuse studio transmission card: the real-time analogue of the
@@ -54,11 +55,12 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   const copy = new THREE.MeshBasicMaterial({ map: backdrop.texture, depthTest: false, depthWrite: false, toneMapped: false })
   const film = new THREE.ShaderMaterial({
     uniforms: { frame: { value: image.texture }, depthMap: { value: image.depthTexture }, size, time, floor,
-      near: { value: camera.near }, far: { value: camera.far }, focus: { value: 5 }, softness: { value: 1 }, grade: { value: new THREE.Vector4(1,1,1,0) }, glowAmount: { value: 1 } },
+      near: { value: camera.near }, far: { value: camera.far }, focus: { value: 5 }, softness: { value: 1 }, grade: { value: new THREE.Vector4(1,1,1,0) }, glowAmount: { value: 1 }, brushCount:{value:0},brushes:{value:Array.from({length:64},()=>new THREE.Vector4())},brushKinds:{value:new Float32Array(64)} },
     vertexShader: screenVertex, depthTest: false, depthWrite: false,
     fragmentShader: `
       uniform sampler2D frame,depthMap; uniform vec2 size;
       uniform float time,floor,near,far,focus,softness,glowAmount; uniform vec4 grade; varying vec2 vUv;
+      uniform int brushCount; uniform vec4 brushes[64];uniform float brushKinds[64];
       float distanceAt(vec2 p){float d=texture2D(depthMap,p).x;return near*far/(far-d*(far-near));}
       vec3 softImage(vec2 p,float r){
         vec2 t=r/size; vec3 c=texture2D(frame,p).rgb*.24;
@@ -87,6 +89,16 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
         c=(c-.5)*grade.z+.5;
         c*=grade.x;
         c.r+=grade.w*.10; c.b-=grade.w*.08;
+        for(int i=0;i<64;i++){
+          if(i>=brushCount)break;
+          vec4 b=brushes[i];float weight=exp(-dot((p-b.xy)*vec2(size.x/size.y,1.),(p-b.xy)*vec2(size.x/size.y,1.))*2./max(b.z*b.z,.0001))*b.w;
+          float l=dot(c,vec3(.2126,.7152,.0722));
+          if(brushKinds[i]<.5)c=mix(c,c.gbr,weight*.7);
+          else if(brushKinds[i]<1.5)c=mix(c,vec3(l)+(c-vec3(l))*1.8,weight);
+          else if(brushKinds[i]<2.5)c+=vec3(.12,.045,-.035)*weight;
+          else if(brushKinds[i]<3.5)c+=max(softImage(p,9.)-.25,0.)*weight*.35;
+          else c+=vec3(.18)*weight;
+        }
         c*=1.-.36*pow(length((p-.5)*vec2(1.1,.8)),1.7);
         gl_FragColor=vec4(c,1.);
         #include <tonemapping_fragment>
@@ -196,6 +208,10 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
     const a=config.atmosphere
     film.uniforms.grade.value.set(a.brightness,a.saturation,a.contrast,a.warmth)
     film.uniforms.glowAmount.value=a.glow
+    sky.uniforms.mistDensity.value=a.fog;sky.uniforms.mistColor.value.set(a.fogColor)
+    const strokes=config.brushes.slice(-64), vectors=film.uniforms.brushes.value as THREE.Vector4[], kinds=film.uniforms.brushKinds.value as Float32Array
+    film.uniforms.brushCount.value=strokes.length
+    strokes.forEach((stroke,i)=>{vectors[i].set(stroke.x,1-stroke.y,stroke.size,stroke.strength);kinds[i]=['Hue','Saturation','Warmth','Glow','Brightness'].indexOf(stroke.kind)})
   }
 
   function resize() {

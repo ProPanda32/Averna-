@@ -1,15 +1,15 @@
-export type SphereTransform={x:number;y:number;z:number;scale:number;rotationY:number;locked?:boolean}
-export type BrushStroke={x:number;y:number;size:number;strength:number;kind:'Warmth'|'Glow'|'Brightness'|'Eraser'}
+export type SphereTransform={x:number;y:number;z:number;scale:number;rotationY:number;locked?:boolean;deleted?:boolean;material?:'glass'|'pink'|'amber'|'moss'|'cream'|'gold';color?:string;opacity?:number;roughness?:number;metalness?:number;transmission?:number;ior?:number;floatSpeed?:number;interaction?:number}
+export type BrushStroke={x:number;y:number;size:number;strength:number;kind:'Hue'|'Saturation'|'Warmth'|'Glow'|'Brightness'|'Eraser'}
 export type StudioConfig={
   version:number
   bottle:{x:number;y:number;z:number;scale:number;rotationX:number;rotationY:number;rotationZ:number;glassTint:string;glassRoughness:number;glassIor:number;glassTransmission:number;liquidTint:string;liquidAbsorption:number;capTint:string;goldTint:string;autoRotate:boolean;autoSpeed:number;dragSensitivity:number;inertia:number;damping:number;maxSpeed:number}
-  particles:{size:number;opacity:number;brightness:number;speed:number;repulsion:number;radius:number;returnStrength:number;damping:number;ambientSpeed:number}
+  particles:{count:number;size:number;opacity:number;brightness:number;speed:number;repulsion:number;radius:number;returnStrength:number;damping:number;ambientSpeed:number;sphereForce:number;attraction:number;velocitySensitivity:number}
   spheres:Record<string,SphereTransform>
   lighting:{ambient:number;key:number;keyColor:string;rim:number;rimColor:string;exposure:number}
-  atmosphere:{hue:number;saturation:number;contrast:number;brightness:number;warmth:number;fog:number;glow:number}
+  atmosphere:{hue:number;saturation:number;contrast:number;brightness:number;warmth:number;fog:number;fogColor:string;glow:number}
   camera:{x:number;y:number;distance:number;fov:number}
   brushes:BrushStroke[]
-  brushTool:'Off'|'Warmth'|'Glow'|'Brightness'|'Eraser'
+  brushTool:'Off'|'Hue'|'Saturation'|'Warmth'|'Glow'|'Brightness'|'Eraser'
   brushSize:number
   brushStrength:number
 }
@@ -33,11 +33,16 @@ export function mergeConfig(value:unknown):StudioConfig{
     for(const [id,entry] of Object.entries(raw.spheres as Record<string,unknown>)){
       if(!entry||typeof entry!=='object')continue
       const e=entry as Record<string,unknown>
-      if(['x','y','z','scale','rotationY'].every(k=>typeof e[k]==='number'&&Number.isFinite(e[k])))
-        copy.spheres[id]={x:e.x as number,y:e.y as number,z:e.z as number,scale:e.scale as number,rotationY:e.rotationY as number,locked:e.locked===true}
+      if(['x','y','z','scale','rotationY'].every(k=>typeof e[k]==='number'&&Number.isFinite(e[k]))) {
+        const sphere:SphereTransform={x:e.x as number,y:e.y as number,z:e.z as number,scale:e.scale as number,rotationY:e.rotationY as number,locked:e.locked===true,deleted:e.deleted===true}
+        for(const k of ['opacity','roughness','metalness','transmission','ior','floatSpeed','interaction'] as const)if(typeof e[k]==='number'&&Number.isFinite(e[k]))sphere[k]=e[k] as number
+        if(typeof e.color==='string'&&/^#[0-9a-f]{6}$/i.test(e.color))sphere.color=e.color
+        if(['glass','pink','amber','moss','cream','gold'].includes(String(e.material)))sphere.material=e.material as SphereTransform['material']
+        copy.spheres[id]=sphere
+      }
     }
   }
-  if(['Off','Warmth','Glow','Brightness','Eraser'].includes(String(raw.brushTool)))copy.brushTool=raw.brushTool as StudioConfig['brushTool']
+  if(['Off','Hue','Saturation','Warmth','Glow','Brightness','Eraser'].includes(String(raw.brushTool)))copy.brushTool=raw.brushTool as StudioConfig['brushTool']
   if(typeof raw.brushSize==='number'&&Number.isFinite(raw.brushSize))copy.brushSize=raw.brushSize
   if(typeof raw.brushStrength==='number'&&Number.isFinite(raw.brushStrength))copy.brushStrength=raw.brushStrength
   if(Array.isArray(raw.brushes))copy.brushes=raw.brushes.filter((e:unknown)=>e&&typeof e==='object').slice(0,200) as StudioConfig['brushes']

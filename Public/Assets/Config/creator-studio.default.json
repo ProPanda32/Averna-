@@ -24,6 +24,7 @@
     "maxSpeed": 4
   },
   "particles": {
+    "count": 1,
     "size": 1,
     "opacity": 0.92,
     "brightness": 1,
@@ -32,7 +33,10 @@
     "radius": 1,
     "returnStrength": 3.8,
     "damping": 3.2,
-    "ambientSpeed": 1
+    "ambientSpeed": 1,
+    "sphereForce": 1,
+    "attraction": 0,
+    "velocitySensitivity": 1
   },
   "spheres": {},
   "lighting": {
@@ -50,6 +54,7 @@
     "brightness": 1,
     "warmth": 0,
     "fog": 0,
+    "fogColor": "#101c1e",
     "glow": 1
   },
   "camera": {
