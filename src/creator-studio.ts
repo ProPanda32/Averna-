@@ -30,6 +30,7 @@ const fields:Field[]=[
   {label:'Particle brightness',section:'particles',key:'brightness',min:0,max:4,step:.01},
   {label:'Movement speed',section:'particles',key:'speed',min:0,max:4,step:.01},
   {label:'Cursor repulsion',section:'particles',key:'repulsion',min:0,max:5,step:.01},
+  {label:'Green particle response',section:'particles',key:'mossStrength',min:0,max:4,step:.01},
   {label:'Cursor attraction',section:'particles',key:'attraction',min:0,max:1,step:.01},
   {label:'Velocity sensitivity',section:'particles',key:'velocitySensitivity',min:0,max:3,step:.01},
   {label:'Sphere interaction',section:'particles',key:'sphereForce',min:0,max:4,step:.01},
