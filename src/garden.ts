@@ -240,7 +240,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   const drawingSize=new THREE.Vector2()
   let simulationFrames=0
   function probeMoss(){
-    const projection=new THREE.Vector3(), readback=new Float32Array(4)
+    const projection=new THREE.Vector3(), readback=new Float32Array(4), velocityReadback=new Float32Array(4)
     let index=0, nearest=Infinity
     for(let i=0;i<mossPositions.length;i++){
       projection.copy(mossPositions[i]).project(camera)
@@ -248,8 +248,11 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
       if(projection.z<1&&distance<nearest){nearest=distance;index=i}
     }
     projection.copy(mossPositions[index]).project(camera)
-    if(!gpuError)renderer.readRenderTargetPixels(gpu.getCurrentRenderTarget(offsets),index%dimension,Math.floor(index/dimension),1,1,readback)
-    return {x:projection.x,y:projection.y,offset:[readback[0],readback[1],readback[2]],enabled:!gpuError}
+    if(!gpuError){
+      renderer.readRenderTargetPixels(gpu.getCurrentRenderTarget(offsets),index%dimension,Math.floor(index/dimension),1,1,readback)
+      renderer.readRenderTargetPixels(gpu.getCurrentRenderTarget(velocity),index%dimension,Math.floor(index/dimension),1,1,velocityReadback)
+    }
+    return {x:projection.x,y:projection.y,origin:mossPositions[index].toArray(),offset:[readback[0],readback[1],readback[2]],velocity:[velocityReadback[0],velocityReadback[1],velocityReadback[2]],pointer:[pointer.value.x,pointer.value.y],active:active.value,frames:simulationFrames,enabled:!gpuError}
   }
   const sphereMaterials={glass,pink,amber,moss:mossOrb,cream:pearl,gold}
   function syncSpheres(settings:Record<string,SphereTransform>){

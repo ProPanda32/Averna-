@@ -20,6 +20,7 @@ try {
   await page.waitForFunction(start=>window.__nocturneAudit().particleControls.simulationFrames>=start+12,initialFrames,{timeout:120000})
   const after=await page.evaluate(()=>window.__nocturneProbe())
   const motion=Math.hypot(...after.offset.map((v,i)=>v-before.offset[i]))
+  console.log('Green particle probe:',JSON.stringify({before,after,motion}))
   assert.ok(motion>.003,`Green particle displacement must be visible; measured ${motion}`)
   assert.deepEqual(errors,[],'No shader or runtime errors')
   console.log(`PASS green particle hover displacement: ${motion.toFixed(4)} world units`)
