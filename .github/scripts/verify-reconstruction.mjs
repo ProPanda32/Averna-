@@ -55,6 +55,16 @@ try {
   }
   await page.setViewportSize({width:1366,height:768})
   await loadHero(page)
+  const mossBefore=await page.evaluate(()=>window.__nocturneAudit().mossProbe)
+  assert.ok(mossBefore.enabled,'Green moss must use the GPU simulation')
+  const heroBox=await page.locator('.site-hero').boundingBox()
+  const hoverX=heroBox.x+(mossBefore.x+1)*heroBox.width/2+24
+  const hoverY=heroBox.y+(1-mossBefore.y)*heroBox.height/2
+  await page.mouse.move(hoverX,hoverY,{steps:12})
+  await page.waitForTimeout(650)
+  const mossAfter=await page.evaluate(()=>window.__nocturneAudit().mossProbe)
+  const movement=Math.hypot(...mossAfter.offset.map((v,i)=>v-mossBefore.offset[i]))
+  assert.ok(movement>.002,`Hover must displace the green particles (measured ${movement})`)
   const before=await page.evaluate(()=>window.__nocturneAudit().rotation)
   const b=await page.locator('.bottle-drag-target').boundingBox()
   await page.mouse.move(b.x+b.width/2,b.y+b.height/2)

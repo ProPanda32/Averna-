@@ -199,13 +199,13 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     color.set(palette[hue]).multiplyScalar(r(.3,hue===4?1.1:2.2));colors.set(color.toArray(),i*3)
     sizes[i]=i%127===0?r(4,7):r(1.1,3.8)
   }
-  const pointer={value:new THREE.Vector2(99,99)}, cameraPosition={value:camera.position.clone()}, projectionScale={value:new THREE.Vector2()}, speed={value:0}, dt={value:1/60}, elapsed={value:0}, active={value:0}
+  const pointer={value:new THREE.Vector2(99,99)}, particleCameraEye={value:camera.position.clone()}, projectionScale={value:new THREE.Vector2()}, speed={value:0}, dt={value:1/60}, elapsed={value:0}, active={value:0}
   const repulsion={value:1}, radius={value:1}, returnStrength={value:3.8}, damping={value:3.2}, motionScale={value:1}, ambientSpeed={value:1}, attraction={value:0}, velocitySensitivity={value:1}, sphereForce={value:1}, spherePointer={value:new THREE.Vector3(99,99,0)}, sphereSpeed={value:0}
   const velocity=gpu.addVariable('velocity',`
-    uniform sampler2D origins;uniform vec2 pointer,projectionScale;uniform vec3 cameraPosition,spherePointer;uniform float dt,speed,pointerActive,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,sphereSpeed;
+    uniform sampler2D origins;uniform vec2 pointer,projectionScale;uniform vec3 particleCameraEye,spherePointer;uniform float dt,speed,pointerActive,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,sphereSpeed;
     void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;
       vec3 p=texture2D(origins,uv).xyz;vec3 o=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;
-      vec3 location=p+o;vec2 projected=(location.xy-cameraPosition.xy)*projectionScale/max(cameraPosition.z-location.z,.1);
+      vec3 location=p+o;vec2 projected=(location.xy-particleCameraEye.xy)*projectionScale/max(particleCameraEye.z-location.z,.1);
       vec2 d=projected-pointer;float influence=exp(-dot(d,d)*4./max(radius*radius*.0324,.0001))*pointerActive;
       vec3 force=normalize(vec3(d.x/projectionScale.x,d.y/projectionScale.y,.0001))*influence*(.2+min(speed*velocitySensitivity,4.)*.7)*repulsion*(1.-2.*attraction);
       vec3 sd=p+o-spherePointer;float si=exp(-dot(sd,sd)*4.);force+=normalize(sd+vec3(.0001))*si*sphereSpeed*sphereForce*.4;
@@ -213,7 +213,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
       gl_FragColor=vec4(clamp(v,vec3(-.8),vec3(.8)),1.);}`,zero)
   const offsets=gpu.addVariable('offsets',`uniform float dt;void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;vec3 p=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;gl_FragColor=vec4(p+v*dt,1.);}`,zero.clone())
   gpu.setVariableDependencies(velocity,[velocity,offsets]);gpu.setVariableDependencies(offsets,[velocity,offsets])
-  Object.assign(velocity.material.uniforms,{origins:{value:origin},pointer,cameraPosition,projectionScale,speed,dt,pointerActive:active,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,spherePointer,sphereSpeed})
+  Object.assign(velocity.material.uniforms,{origins:{value:origin},pointer,particleCameraEye,projectionScale,speed,dt,pointerActive:active,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,spherePointer,sphereSpeed})
   offsets.material.uniforms.dt=dt
   const gpuError=gpu.init()
   mossOffset.value=zero;mossEnabled.value=gpuError?0:1
@@ -238,6 +238,18 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   geometry.setAttribute('tint',new THREE.BufferAttribute(colors,3));geometry.setAttribute('beadSize',new THREE.BufferAttribute(sizes,1))
   const particles=new THREE.Points(geometry,material);particles.layers.set(WORLD);particles.frustumCulled=false;particles.name='GPU botanical bead field';root.add(particles)
   const drawingSize=new THREE.Vector2()
+  function probeMoss(){
+    const projection=new THREE.Vector3(), readback=new Float32Array(4)
+    let index=0, nearest=Infinity
+    for(let i=0;i<mossPositions.length;i++){
+      projection.copy(mossPositions[i]).project(camera)
+      const distance=(projection.x-.55)**2+(projection.y-.12)**2
+      if(projection.z<1&&distance<nearest){nearest=distance;index=i}
+    }
+    projection.copy(mossPositions[index]).project(camera)
+    if(!gpuError)renderer.readRenderTargetPixels(gpu.getCurrentRenderTarget(offsets),index%dimension,Math.floor(index/dimension),1,1,readback)
+    return {x:projection.x,y:projection.y,offset:[readback[0],readback[1],readback[2]],enabled:!gpuError}
+  }
   const sphereMaterials={glass,pink,amber,moss:mossOrb,cream:pearl,gold}
   function syncSpheres(settings:Record<string,SphereTransform>){
     for(const [id,saved] of Object.entries(settings)){
@@ -265,7 +277,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     }
   }
   return {
-    count, root, spheres, syncSpheres,
+    count, root, spheres, syncSpheres, probeMoss,
     audit:()=>({repulsion:repulsion.value,radius:radius.value,returnStrength:returnStrength.value,damping:damping.value,size:material.uniforms.sizeMultiplier.value,opacity:material.uniforms.opacityMultiplier.value,mossCount,mossStrength:mossStrength.value,simulatedMoss:!gpuError}),
     setControls(config:StudioConfig){
       const p=config.particles
@@ -279,7 +291,7 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     leave(){active.value=0},
     tick(seconds:number,delta:number,reduced:boolean){
       elapsed.value=reduced?0:seconds;dt.value=Math.min(delta,.033)
-      cameraPosition.value.copy(camera.position)
+      particleCameraEye.value.copy(camera.position)
       const tangent=Math.tan(THREE.MathUtils.degToRad(camera.fov/2));projectionScale.value.set(1/(tangent*camera.aspect),1/tangent)
       material.uniforms.pixelRatio.value=renderer.getPixelRatio()
       if(!gpuError&&!reduced){gpu.compute();const texture=gpu.getCurrentRenderTarget(offsets).texture;material.uniforms.offsetMap.value=texture;mossOffset.value=texture}
