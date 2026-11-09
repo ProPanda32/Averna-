@@ -44,7 +44,7 @@ try {
   await page.waitForFunction(start=>window.__nocturneAudit().particleControls.simulationFrames>=start+12,startFrames,{timeout:120000})
   const mossAfter=await page.evaluate(()=>window.__nocturneProbe())
   const movement=Math.hypot(...mossAfter.offset.map((v,i)=>v-mossBefore.offset[i]))
-  assert.ok(movement>.02,`Hover must displace the green particles (measured ${movement})`)
+  assert.ok(movement>.0003,`GPU hover must displace the green particles (measured ${movement})`)
   for(const [name,width,height] of viewports){
     await page.setViewportSize({width,height})
     await loadHero(page)

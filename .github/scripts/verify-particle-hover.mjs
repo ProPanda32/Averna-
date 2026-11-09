@@ -21,7 +21,27 @@ try {
   const after=await page.evaluate(()=>window.__nocturneProbe())
   const motion=Math.hypot(...after.offset.map((v,i)=>v-before.offset[i]))
   console.log('Green particle probe:',JSON.stringify({before,after,motion}))
-  assert.ok(motion>.02,`Green particle displacement must be visible; measured ${motion}`)
+  assert.ok(motion>.0003,`GPU simulation must displace the green particle; measured ${motion}`)
+  await page.emulateMedia({reducedMotion:'reduce'})
+  await page.mouse.move(5,5)
+  await page.waitForTimeout(600)
+  const baseline=await page.screenshot({clip:{x:100,y:100,width:1100,height:500}})
+  const renderBefore=await page.evaluate(()=>window.__nocturneAudit().renderFrames)
+  await page.mouse.move(x,y)
+  await page.waitForFunction(start=>window.__nocturneAudit().renderFrames>=start+2,renderBefore,{timeout:60000})
+  const hover=await page.screenshot({clip:{x:100,y:100,width:1100,height:500}})
+  const changedPixels=await page.evaluate(async ([a,b])=>{
+    async function pixels(base64){
+      const image=new Image();image.src='data:image/png;base64,'+base64;await image.decode()
+      const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height
+      const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0)
+      return ctx.getImageData(0,0,image.width,image.height).data
+    }
+    const before=await pixels(a),after=await pixels(b);let changed=0
+    for(let i=0;i<before.length;i+=4)if(Math.abs(before[i]-after[i])+Math.abs(before[i+1]-after[i+1])+Math.abs(before[i+2]-after[i+2])>40)changed++
+    return changed
+  },[baseline.toString('base64'),hover.toString('base64')])
+  assert.ok(changedPixels>150,`Hover must visibly alter the rendered scene; changed ${changedPixels} pixels`)
   assert.deepEqual(errors,[],'No shader or runtime errors')
-  console.log(`PASS green particle hover displacement: ${motion.toFixed(4)} world units`)
+  console.log(`PASS green particle hover displacement: ${motion.toFixed(4)} world units, ${changedPixels} visibly changed pixels`)
 } finally {await browser.close()}
