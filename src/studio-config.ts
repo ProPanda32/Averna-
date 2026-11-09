@@ -3,7 +3,7 @@ export type BrushStroke={x:number;y:number;size:number;strength:number;kind:'Hue
 export type StudioConfig={
   version:number
   bottle:{x:number;y:number;z:number;scale:number;rotationX:number;rotationY:number;rotationZ:number;glassTint:string;glassRoughness:number;glassIor:number;glassTransmission:number;liquidTint:string;liquidAbsorption:number;capTint:string;goldTint:string;autoRotate:boolean;autoSpeed:number;dragSensitivity:number;inertia:number;damping:number;maxSpeed:number}
-  particles:{count:number;size:number;opacity:number;brightness:number;speed:number;repulsion:number;radius:number;returnStrength:number;damping:number;ambientSpeed:number;sphereForce:number;attraction:number;velocitySensitivity:number}
+  particles:{count:number;size:number;opacity:number;brightness:number;speed:number;repulsion:number;radius:number;returnStrength:number;damping:number;ambientSpeed:number;sphereForce:number;attraction:number;velocitySensitivity:number;mossStrength:number}
   spheres:Record<string,SphereTransform>
   lighting:{ambient:number;key:number;keyColor:string;rim:number;rimColor:string;exposure:number}
   atmosphere:{hue:number;saturation:number;contrast:number;brightness:number;warmth:number;fog:number;fogColor:string;glow:number}

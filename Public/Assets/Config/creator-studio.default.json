@@ -36,7 +36,8 @@
     "ambientSpeed": 1,
     "sphereForce": 1,
     "attraction": 0,
-    "velocitySensitivity": 1
+    "velocitySensitivity": 1,
+    "mossStrength": 1
   },
   "spheres": {},
   "lighting": {
