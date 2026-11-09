@@ -25,11 +25,12 @@ try {
   await page.emulateMedia({reducedMotion:'reduce'})
   await page.mouse.move(5,5)
   await page.waitForTimeout(600)
-  const baseline=await page.screenshot({clip:{x:100,y:100,width:1100,height:500}})
+  const clip={x:Math.max(0,Math.min(1366-320,Math.round(x-160))),y:Math.max(0,Math.min(768-240,Math.round(y-120))),width:320,height:240}
+  const baseline=await page.screenshot({clip,timeout:120000,animations:'disabled'})
   const renderBefore=await page.evaluate(()=>window.__nocturneAudit().renderFrames)
   await page.mouse.move(x,y)
   await page.waitForFunction(start=>window.__nocturneAudit().renderFrames>=start+2,renderBefore,{timeout:60000})
-  const hover=await page.screenshot({clip:{x:100,y:100,width:1100,height:500}})
+  const hover=await page.screenshot({clip,timeout:120000,animations:'disabled'})
   const changedPixels=await page.evaluate(async ([a,b])=>{
     async function pixels(base64){
       const image=new Image();image.src='data:image/png;base64,'+base64;await image.decode()
