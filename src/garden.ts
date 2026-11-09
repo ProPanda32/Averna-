@@ -207,10 +207,10 @@ export function createGarden(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
       vec3 p=texture2D(origins,uv).xyz;vec3 o=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;
       vec3 location=p+o;vec2 projected=(location.xy-particleCameraEye.xy)*projectionScale/max(particleCameraEye.z-location.z,.1);
       vec2 d=projected-pointer;float influence=exp(-dot(d,d)*4./max(radius*radius*.0324,.0001))*pointerActive;
-      vec3 force=normalize(vec3(d.x/projectionScale.x,d.y/projectionScale.y,.0001))*influence*(.45+min(speed*velocitySensitivity,4.)*.7)*repulsion*(1.-2.*attraction);
+      vec3 force=normalize(vec3(d.x/projectionScale.x,d.y/projectionScale.y,.0001))*influence*(1.+min(speed*velocitySensitivity*40.,18.))*repulsion*(1.-2.*attraction);
       vec3 sd=p+o-spherePointer;float si=exp(-dot(sd,sd)*4.);force+=normalize(sd+vec3(.0001))*si*sphereSpeed*sphereForce*.4;
       v+=(force-o*returnStrength)*dt*motionScale;v*=exp(-dt*damping);
-      gl_FragColor=vec4(clamp(v,vec3(-.8),vec3(.8)),1.);}`,zero)
+      gl_FragColor=vec4(clamp(v,vec3(-2.),vec3(2.)),1.);}`,zero)
   const offsets=gpu.addVariable('offsets',`uniform float dt;void main(){vec2 uv=gl_FragCoord.xy/resolution.xy;vec3 p=texture2D(offsets,uv).xyz;vec3 v=texture2D(velocity,uv).xyz;gl_FragColor=vec4(p+v*dt,1.);}`,zero.clone())
   gpu.setVariableDependencies(velocity,[velocity,offsets]);gpu.setVariableDependencies(offsets,[velocity,offsets])
   Object.assign(velocity.material.uniforms,{origins:{value:origin},pointer,particleCameraEye,projectionScale,speed,dt,pointerActive:active,repulsion,radius,returnStrength,damping,motionScale,attraction,velocitySensitivity,sphereForce,spherePointer,sphereSpeed})

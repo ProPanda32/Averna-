@@ -21,7 +21,7 @@ try {
   const after=await page.evaluate(()=>window.__nocturneProbe())
   const motion=Math.hypot(...after.offset.map((v,i)=>v-before.offset[i]))
   console.log('Green particle probe:',JSON.stringify({before,after,motion}))
-  assert.ok(motion>.003,`Green particle displacement must be visible; measured ${motion}`)
+  assert.ok(motion>.02,`Green particle displacement must be visible; measured ${motion}`)
   assert.deepEqual(errors,[],'No shader or runtime errors')
   console.log(`PASS green particle hover displacement: ${motion.toFixed(4)} world units`)
 } finally {await browser.close()}
