@@ -85,11 +85,12 @@ try {
   await page.locator('#site-search').fill('fragrance')
   assert.equal(await page.locator('.search-results a:visible').count(),1)
   await page.keyboard.press('Escape')
+  await page.emulateMedia({reducedMotion:'reduce'})
   for(const [name,width,height] of [['desktop',1366,768],['phone',390,844]]){
     await page.setViewportSize({width,height})
     await page.evaluate(()=>window.scrollTo({top:document.querySelector('.site-hero').clientHeight,behavior:'instant'}))
     await page.waitForFunction(()=>document.querySelector('.site-header').classList.contains('is-scrolled'))
-    await page.waitForTimeout(500)
+    await page.waitForFunction(()=>getComputedStyle(document.querySelector('.site-header')).backgroundColor==='rgb(255, 255, 255)',undefined,{timeout:60000})
     const header=await page.locator('.site-header').evaluate(element=>({
       background:getComputedStyle(element).backgroundColor,
       text:getComputedStyle(element.querySelector('.header-logo')).color,
@@ -100,7 +101,6 @@ try {
   }
   await page.setViewportSize({width:1366,height:768})
   await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}))
-  await page.emulateMedia({reducedMotion:'reduce'})
   await loadHero(page,true)
   const still=await page.evaluate(()=>window.__nocturneAudit().rotation)
   await page.waitForTimeout(300)
