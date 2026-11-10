@@ -54,12 +54,12 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   })
   const copy = new THREE.MeshBasicMaterial({ map: backdrop.texture, depthTest: false, depthWrite: false, toneMapped: false })
   const film = new THREE.ShaderMaterial({
-    uniforms: { frame: { value: image.texture }, depthMap: { value: image.depthTexture }, size, time, floor,
+    uniforms: { frame: { value: image.texture }, depthMap: { value: image.depthTexture }, bottleMask: { value: glassDepth.texture }, bottleGlow: { value: 0 }, size, time, floor,
       near: { value: camera.near }, far: { value: camera.far }, focus: { value: 5 }, softness: { value: 1 }, grade: { value: new THREE.Vector4(1,1,1,0) }, glowAmount: { value: 1 }, brushCount:{value:0},brushes:{value:Array.from({length:64},()=>new THREE.Vector4())},brushKinds:{value:new Float32Array(64)} },
     vertexShader: screenVertex, depthTest: false, depthWrite: false,
     fragmentShader: `
-      uniform sampler2D frame,depthMap; uniform vec2 size;
-      uniform float time,floor,near,far,focus,softness,glowAmount; uniform vec4 grade; varying vec2 vUv;
+      uniform sampler2D frame,depthMap,bottleMask; uniform vec2 size;
+      uniform float time,floor,near,far,focus,softness,glowAmount,bottleGlow; uniform vec4 grade; varying vec2 vUv;
       uniform int brushCount; uniform vec4 brushes[64];uniform float brushKinds[64];
       float distanceAt(vec2 p){float d=texture2D(depthMap,p).x;return near*far/(far-d*(far-near));}
       vec3 softImage(vec2 p,float r){
@@ -84,6 +84,17 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
         // Restrained local bloom preserves dark surround and avoids white clipping.
         vec3 halo=max(softImage(p,5.)-.9,0.)*.065+max(softImage(p,12.)-1.3,0.)*.035;
         c+=halo*glowAmount;
+        if(bottleGlow>0.){
+          float around=0.;
+          for(int j=0;j<8;j++){
+            float angle=float(j)*.785398;
+            vec2 direction=vec2(cos(angle),sin(angle))/size;
+            around+=step(.01,texture2D(bottleMask,p+direction*12.).r);
+            around+=step(.01,texture2D(bottleMask,p+direction*26.).r)*.4;
+          }
+          float outside=1.-step(.01,texture2D(bottleMask,p).r);
+          c+=vec3(.16,.10,.045)*bottleGlow*outside*around/8.;
+        }
         float luma=dot(c,vec3(.2126,.7152,.0722));
         c=mix(vec3(luma),c,grade.y);
         c=(c-.5)*grade.z+.5;
@@ -214,6 +225,14 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
     strokes.forEach((stroke,i)=>{vectors[i].set(stroke.x,1-stroke.y,stroke.size,stroke.strength);kinds[i]=['Hue','Saturation','Warmth','Glow','Brightness'].indexOf(stroke.kind)})
   }
 
+  function setBottleFinish(reflection:number,glow:number){
+    for(const mesh of meshes){
+      const material=mesh.material as THREE.MeshPhysicalMaterial
+      if(material.userData.role==='glass'||material.userData.role==='cap')material.envMapIntensity=reflection
+    }
+    film.uniforms.bottleGlow.value=glow
+  }
+
   function resize() {
     const next = renderer.getDrawingBufferSize(new THREE.Vector2())
     if (next.equals(size.value)) return
@@ -255,9 +274,11 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
     camera.layers.mask = mask
     renderer.autoClear = true
   }
-  return { configure, render, setAppearance, transmission, backdrop: backdrop.texture,
+  return { configure, render, setAppearance, setBottleFinish, transmission, backdrop: backdrop.texture,
+    glow:()=>film.uniforms.bottleGlow.value as number,
     audit: () => meshes.map(m => { const mat=m.material as THREE.MeshPhysicalMaterial; return {
       name:m.name,role:mat.userData.role,transmission:mat.transmission,ior:mat.ior,roughness:mat.roughness,metalness:mat.metalness,
+      color:mat.color.getHexString(),attenuationColor:mat.attenuationColor.getHexString(),reflection:mat.envMapIntensity,
     } }),
     dispose: () => { environment.dispose(); [backdrop,interior,image,liquidDepth,glassDepth].forEach(t=>t.dispose());
       [depth,sky,copy,film].forEach(m=>m.dispose()); quad.geometry.dispose() },
