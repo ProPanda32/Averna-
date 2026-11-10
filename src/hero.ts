@@ -3,8 +3,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { createOpticalStage } from './optical-stage'
 import { createGarden } from './garden'
 import './hero.css'
-import { loadConfig, saveConfig, type SphereTransform } from './studio-config'
+import { loadConfig, saveConfig, production, type SphereTransform } from './studio-config'
 import { createCreatorStudio } from './creator-studio'
+import { createBottleControls } from './bottle-controls'
 
 const icon = (path:string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`
 const menuIcon=icon('<path d="M3 6h18M3 12h18M3 18h18"/>')
@@ -128,16 +129,34 @@ async function start() {
   app.querySelector('.reset-view')!.addEventListener('click',()=>{yaw=0;velocity=0;root.rotation.y=0})
 
   const studio=creatorMode?createCreatorStudio(hero,config,next=>{config=next;applyConfig()}):undefined
+  const visitorControls=creatorMode?undefined:createBottleControls(hero,(settings,reset)=>{
+    config.bottle.glassTint=settings.glassTint
+    config.bottle.liquidTint=settings.liquidTint
+    config.bottle.scale=settings.scale
+    config.bottle.glassTransmission=settings.clarity
+    config.bottle.dragSensitivity=production.bottle.dragSensitivity*settings.rotationSpeed
+    config.bottle.inertia=settings.inertia
+    config.lighting.key=production.lighting.key*settings.brightness
+    config.lighting.rim=production.lighting.rim*settings.brightness
+    config.lighting.ambient=production.lighting.ambient*settings.brightness
+    config.lighting.keyColor=settings.lightColorChanged?settings.lightColor:production.lighting.keyColor
+    config.lighting.rimColor=settings.lightColorChanged?settings.lightColor:production.lighting.rimColor
+    if(reset){yaw=0;velocity=0}
+    applyConfig()
+  })
   function applyConfig(){
     renderer.toneMappingExposure=config.lighting.exposure
     key.intensity=config.lighting.key;key.color.set(config.lighting.keyColor)
     rim.intensity=config.lighting.rim;rim.color.set(config.lighting.rimColor)
     ambient.intensity=config.lighting.ambient
+    warm.intensity=2.2*(visitorControls?.settings.brightness??1)
+    warm.color.set(visitorControls?.settings.lightColorChanged?visitorControls.settings.lightColor:'#ffbf69')
     camera.position.set(config.camera.x,config.camera.y,config.camera.distance)
     camera.fov=config.camera.fov+(hero.clientWidth/hero.clientHeight<.9?3:0)
     camera.updateProjectionMatrix()
     renderer.domElement.style.filter='hue-rotate('+config.atmosphere.hue+'deg)'
     stage.setAppearance(config)
+    stage.setBottleFinish(visitorControls?.settings.reflection??1.15,visitorControls?.settings.glow??0)
     garden?.setControls(config)
     garden?.syncSpheres(config.spheres)
     if(garden&&currentDensity!==config.particles.count){currentDensity=config.particles.count;rebuildGarden()}
@@ -239,7 +258,7 @@ async function start() {
     // Inspectable diagnostics without making the production scene mutable.
     if(frameCount%60===0){hero.dataset.rotation=yaw.toFixed(3);hero.dataset.pixelRatio=String(renderer.getPixelRatio());hero.dataset.frameMs=(delta*1000).toFixed(1)}
   })
-  if(import.meta.env.DEV)Object.assign(window,{__nocturneProbe:()=>garden?.probeMoss(),__nocturneAudit:()=>({bottle:stage.audit(),particles:garden?.count,rotation:yaw,renderFrames:frameCount,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio(),creator:creatorMode,config:studio?.config,lights:{key:key.intensity,rim:rim.intensity,ambient:ambient.intensity},camera:{x:camera.position.x,y:camera.position.y,z:camera.position.z,fov:camera.fov},particleControls:garden?.audit(),spheres:garden?.spheres.map(s=>{const p=s.mesh.position.clone().project(camera);return{x:(p.x+1)*hero.clientWidth/2,y:(1-p.y)*hero.clientHeight/2}})})})
+  if(import.meta.env.DEV)Object.assign(window,{__nocturneProbe:()=>garden?.probeMoss(),__nocturneAudit:()=>({bottle:stage.audit(),bottleScale:root.scale.x,bottleGlow:stage.glow(),particles:garden?.count,rotation:yaw,renderFrames:frameCount,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio(),creator:creatorMode,config:studio?.config,lights:{key:key.intensity,keyColor:key.color.getHexString(),rim:rim.intensity,rimColor:rim.color.getHexString(),ambient:ambient.intensity,warm:warm.intensity},camera:{x:camera.position.x,y:camera.position.y,z:camera.position.z,fov:camera.fov},particleControls:garden?.audit(),spheres:garden?.spheres.map(s=>{const p=s.mesh.position.clone().project(camera);return{x:(p.x+1)*hero.clientWidth/2,y:(1-p.y)*hero.clientHeight/2}})})})
   window.addEventListener('pagehide',()=>{renderer.setAnimationLoop(null);observer.disconnect();resizeObserver.disconnect();garden?.dispose();stage.dispose();renderer.dispose();void audio?.close()},{once:true})
   window.addEventListener('pageshow',event=>{if(event.persisted)location.reload()})
 }
