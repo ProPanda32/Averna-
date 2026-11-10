@@ -84,7 +84,8 @@ try {
   await page.getByRole('button',{name:'Search Nocturne',exact:true}).click()
   await page.locator('#site-search').fill('fragrance')
   assert.equal(await page.locator('.search-results a:visible').count(),1)
-  await page.keyboard.press('Escape')
+  await page.locator('#search-dialog .dialog-close').click()
+  assert.equal(await page.locator('dialog[open]').count(),0)
   await page.emulateMedia({reducedMotion:'reduce'})
   for(const [name,width,height] of [['desktop',1366,768],['phone',390,844]]){
     await page.setViewportSize({width,height})
