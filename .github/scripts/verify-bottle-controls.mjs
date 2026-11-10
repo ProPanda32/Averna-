@@ -58,6 +58,29 @@ try{
   assert.equal(reset.lights.rimColor,original.lights.rimColor)
   assert.equal(reset.bottleGlow,0)
   assert.equal(reset.rotation,0)
+  // Compare actual rendered bottle pixels, not just the material property.
+  await page.emulateMedia({reducedMotion:'reduce'})
+  await page.locator('.bottle-controls-appearance summary').click()
+  await page.mouse.move(5,5)
+  const crop={x:Math.round(bounds.x+30),y:Math.round(bounds.y+70),width:Math.round(bounds.width-60),height:Math.round(bounds.height-140)}
+  await set('reflection',0)
+  await page.waitForTimeout(500)
+  const matte=await page.screenshot({clip:crop,timeout:120000})
+  await set('reflection',3)
+  await page.waitForTimeout(500)
+  const shiny=await page.screenshot({clip:crop,timeout:120000})
+  const changedPixels=await page.evaluate(async ([first,second])=>{
+    const read=async base64=>{
+      const image=new Image();image.src='data:image/png;base64,'+base64;await image.decode()
+      const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height
+      const context=canvas.getContext('2d');context.drawImage(image,0,0)
+      return context.getImageData(0,0,image.width,image.height).data
+    }
+    const a=await read(first),b=await read(second);let count=0
+    for(let i=0;i<a.length;i+=4)if(Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2])>50)count++
+    return count
+  },[matte.toString('base64'),shiny.toString('base64')])
+  assert.ok(changedPixels>300,`Reflection must visibly change the bottle; changed ${changedPixels} pixels`)
   await page.setViewportSize({width:390,height:844})
   await page.waitForTimeout(300)
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),390)
@@ -66,5 +89,5 @@ try{
   const right=await page.locator('.bottle-controls-motion summary').boundingBox()
   assert.ok(left.x+left.width<bottle.x+bottle.width/2 && right.x>bottle.x+bottle.width/2)
   assert.deepEqual(errors,[])
-  console.log('PASS bottle controls: live materials, lighting, scale, spin, glow, reset and mobile layout')
+  console.log(`PASS bottle controls: live materials, lighting, scale, spin, glow, reset, mobile layout and ${changedPixels} reflection pixels`)
 }finally{await browser.close()}
