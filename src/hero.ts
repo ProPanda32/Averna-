@@ -5,7 +5,7 @@ import { createGarden } from './garden'
 import './hero.css'
 import { loadConfig, saveConfig, production, type SphereTransform } from './studio-config'
 import { createCreatorStudio } from './creator-studio'
-import { createBottleControls } from './bottle-controls'
+import { createBottleControls, type BottleControls } from './bottle-controls'
 
 const icon = (path:string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`
 const menuIcon=icon('<path d="M3 6h18M3 12h18M3 18h18"/>')
@@ -130,6 +130,9 @@ async function start() {
 
   const studio=creatorMode?createCreatorStudio(hero,config,next=>{config=next;applyConfig()}):undefined
   const visitorControls=creatorMode?undefined:createBottleControls(hero,(settings,reset)=>{
+    applyVisitorSettings(settings,reset)
+  })
+  function applyVisitorSettings(settings:BottleControls,reset:boolean){
     config.bottle.glassTint=settings.glassTint
     config.bottle.liquidTint=settings.liquidTint
     config.bottle.scale=settings.scale
@@ -143,7 +146,8 @@ async function start() {
     config.lighting.rimColor=settings.lightColorChanged?settings.lightColor:production.lighting.rimColor
     if(reset){yaw=0;velocity=0}
     applyConfig()
-  })
+  }
+  if(visitorControls)applyVisitorSettings(visitorControls.settings,false)
   function applyConfig(){
     renderer.toneMappingExposure=config.lighting.exposure
     key.intensity=config.lighting.key;key.color.set(config.lighting.keyColor)
