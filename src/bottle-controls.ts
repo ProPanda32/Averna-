@@ -46,8 +46,8 @@ export function createBottleControls(host:HTMLElement,onChange:(settings:BottleC
   host.append(controls)
   let settings={...original}
   const panels=controls.querySelectorAll<HTMLDetailsElement>('details')
-  panels.forEach(panel=>panel.addEventListener('toggle',()=>{
-    if(panel.open)panels.forEach(other=>{if(other!==panel)other.open=false})
+  panels.forEach(panel=>panel.querySelector('summary')!.addEventListener('click',()=>{
+    if(!panel.open)panels.forEach(other=>{if(other!==panel)other.open=false})
   }))
   controls.querySelectorAll<HTMLInputElement>('input[data-bottle-setting]').forEach(input=>{
     input.addEventListener('input',()=>{
