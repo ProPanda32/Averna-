@@ -73,14 +73,19 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
         float coc=clamp((focus-dist-.6)*9.,0.,18.)*softness;
         vec3 c=softImage(p,coc);
         float below=max(floor-p.y,0.);
-        // Bounded screen-space reflection of the current, fully refracted scene.
-        // Ripples perturb reflected geometry, not a video or a baked product image.
-        float ripple=sin(p.y*1200.+sin(p.x*35.+time*.3)*2.)*.00035+sin(p.y*650.-time*.45)*.0005;
-        vec2 mirror=vec2(p.x+ripple*(1.+below*7.),floor+below*.85);
-        vec3 reflected=softImage(mirror,1.5+below*18.);
-        float path=1.-smoothstep(.14,.42,abs(p.x-.5));
-        float wet=step(p.y,floor)*path;
-        c=mix(c,c*.45+reflected*vec3(.61,.52,.42)*exp(-below*4.),wet*.85);
+        // Reflect the bottle silhouette only. The garden and wide amber
+        // backdrop used to produce a bright rectangular pool behind the copy.
+        float ripple=sin(p.y*700.+time*.35)*.00012;
+        vec2 mirror=vec2(p.x+ripple,floor+below*.85);
+        vec2 texel=1./size;
+        float reflectedBottle=step(.01,texture2D(bottleMask,mirror).r)*.5;
+        reflectedBottle+=step(.01,texture2D(bottleMask,mirror+vec2(3.,0.)*texel).r)*.125;
+        reflectedBottle+=step(.01,texture2D(bottleMask,mirror-vec2(3.,0.)*texel).r)*.125;
+        reflectedBottle+=step(.01,texture2D(bottleMask,mirror+vec2(0.,3.)*texel).r)*.125;
+        reflectedBottle+=step(.01,texture2D(bottleMask,mirror-vec2(0.,3.)*texel).r)*.125;
+        float reflectionFade=exp(-below*16.)*step(p.y,floor)*reflectedBottle;
+        vec3 reflected=softImage(mirror,3.+below*12.);
+        c=mix(c,reflected*vec3(.30,.25,.20),reflectionFade*.48);
         // Restrained local bloom preserves dark surround and avoids white clipping.
         vec3 halo=max(softImage(p,5.)-.9,0.)*.065+max(softImage(p,12.)-1.3,0.)*.035;
         c+=halo*glowAmount;
