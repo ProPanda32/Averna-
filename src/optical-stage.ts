@@ -126,12 +126,14 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   const screen = new THREE.Scene(); screen.add(quad)
   const screenCamera = new THREE.OrthographicCamera(-1,1,1,-1,0,1)
   const meshes: THREE.Mesh[] = []
+  const bottleReflection = { value: 1 }
 
   function transmission(material: THREE.MeshPhysicalMaterial, source: THREE.Texture, role: string) {
     material.onBeforeCompile = shader => {
       shader.uniforms.opticalMap = { value: source }
       shader.uniforms.opticalSize = size
       shader.uniforms.backDepth = { value: role === 'liquid' ? liquidDepth.texture : glassDepth.texture }
+      if(role==='glass'||role==='cap')shader.uniforms.bottleReflection=bottleReflection
       let pars = THREE.ShaderChunk.transmission_pars_fragment
         .replaceAll('transmissionSamplerMap', 'opticalMap').replaceAll('transmissionSamplerSize', 'opticalSize')
       if(role==='liquid') pars=pars.replace('vec3 attenuatedColor = transmittance * transmittedLight.rgb;',`
@@ -151,7 +153,7 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
       `)
       shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying float localHeight;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nlocalHeight=position.y;')
-      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float localHeight;')
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float localHeight;\nuniform float bottleReflection;')
         .replace('#include <transmission_pars_fragment>', pars+'\nuniform sampler2D backDepth;\n')
         .replace('#include <transmission_fragment>', THREE.ShaderChunk.transmission_fragment.replace('material.thickness = thickness;', `
           float backZ=texture2D(backDepth,gl_FragCoord.xy/opticalSize).r;
@@ -159,8 +161,12 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
           float path=max(backZ-vViewPosition.z,0.)/scale;
           material.thickness=${role === 'liquid' ? 'clamp(path,.005,.38)' : role === 'cap' ? 'clamp(path,.025,.24)' : 'clamp(path*.12,.014,.065)+.065*(1.-smoothstep(.08,.23,localHeight))'};
         `))
+      if(role==='glass'||role==='cap')shader.fragmentShader=shader.fragmentShader.replace(
+        'vec3 totalSpecular = reflectedLight.directSpecular + reflectedLight.indirectSpecular;',
+        'vec3 totalSpecular = (reflectedLight.directSpecular + reflectedLight.indirectSpecular) * bottleReflection;'
+      )
     }
-    material.customProgramCacheKey = () => 'garden-optics-v2-'+role
+    material.customProgramCacheKey = () => 'garden-optics-v3-'+role
   }
 
   function configure(bottle: THREE.Object3D) {
@@ -231,6 +237,7 @@ export function createOpticalStage(renderer: THREE.WebGLRenderer, scene: THREE.S
   }
 
   function setBottleFinish(reflection:number,glow:number){
+    bottleReflection.value=reflection/1.15
     for(const mesh of meshes){
       const material=mesh.material as THREE.MeshPhysicalMaterial
       if(material.userData.role==='glass'||material.userData.role==='cap')material.envMapIntensity=reflection
