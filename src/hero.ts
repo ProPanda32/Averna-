@@ -268,5 +268,7 @@ async function start() {
 }
 start().catch(showError)
 const header=app.querySelector<HTMLElement>('.site-header')!
-window.addEventListener('scroll',()=>header.classList.toggle('is-scrolled',scrollY>hero.clientHeight*.85),{passive:true})
+const updateHeader=()=>header.classList.toggle('is-scrolled',scrollY>hero.clientHeight*.85)
+window.addEventListener('scroll',updateHeader,{passive:true})
+updateHeader()
 document.addEventListener('visibilitychange',()=>{if(audio&&document.hidden)void audio.suspend();else if(audio&&music.getAttribute('aria-pressed')==='true')void audio.resume()})
